@@ -1,0 +1,67 @@
+{
+  "name": "sportbar",
+  "displayName": "SportBar — Live Sports Scores",
+  "description": "Live cricket, football, and F1 scores right in your VS Code status bar.",
+  "version": "0.1.0",
+  "publisher": "kanishkar-k",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["cricket", "football", "f1", "sports", "scores", "live"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sportbar.showPanel",
+        "title": "SportBar: Show Live Scores"
+      },
+      {
+        "command": "sportbar.refresh",
+        "title": "SportBar: Refresh Now"
+      }
+    ],
+    "configuration": {
+      "title": "SportBar",
+      "properties": {
+        "sportbar.enabledSports": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["cricket", "football", "f1"] },
+          "default": ["cricket", "football", "f1"],
+          "description": "Which sports to show in the status bar."
+        },
+        "sportbar.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 45,
+          "description": "How often to refresh while a match is live (seconds)."
+        },
+        "sportbar.idleRefreshMinutes": {
+          "type": "number",
+          "default": 30,
+          "description": "How often to refresh when nothing is live (minutes)."
+        },
+        "sportbar.statusBarMaxLength": {
+          "type": "number",
+          "default": 30,
+          "description": "Max characters per status bar item before truncation."
+        },
+        "sportbar.useMockData": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use built-in sample data instead of live APIs (great for development)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
