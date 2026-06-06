@@ -204,10 +204,31 @@ export class DetailPanel {
     const body = document.getElementById('body');
     const m = matches[active];
     if (!m) { body.innerHTML = '<div class="empty">No data</div>'; return; }
+    stopAnim(); stopCricketTimer(); stopMapTimer();
     if (m.sport === 'f1') { renderF1(m); return; }
-    stopAnim();
     if (m.sport === 'cricket') { renderCricket(m); return; }
     body.innerHTML = buildDetail(m.detail);
+  }
+
+  // Auto-refresh timers (paused when the panel is hidden).
+  let cricTimer = null, mapTimer = null;
+  function stopCricketTimer() { if (cricTimer) { clearInterval(cricTimer); cricTimer = null; } }
+  function startCricketTimer() {
+    stopCricketTimer();
+    cricTimer = setInterval(() => {
+      if (!document.hidden && matches[active] && matches[active].sport === 'cricket') {
+        vscode.postMessage({ type: 'requestCricket' }); // silent: keep showing data until new arrives
+      }
+    }, 45000);
+  }
+  function stopMapTimer() { if (mapTimer) { clearInterval(mapTimer); mapTimer = null; } }
+  function startMapTimer() {
+    stopMapTimer();
+    mapTimer = setInterval(() => {
+      if (!document.hidden && f1View === 'map') {
+        vscode.postMessage({ type: 'requestF1Map' });
+      }
+    }, 30000);
   }
 
   function buildDetail(d) {
@@ -274,6 +295,7 @@ export class DetailPanel {
       '<div class="mapwrap"><canvas id="track" width="300" height="260"></canvas>' +
       '<div class="grid" id="grid"></div></div>';
     startAnim();
+    if (mapData.live) { startMapTimer(); } else { stopMapTimer(); }
   }
 
   function startAnim() {
@@ -332,6 +354,7 @@ export class DetailPanel {
     const rb = document.getElementById('cric-refresh');
     if (rb) rb.onclick = () => { cricketStatus = 'idle'; ensureCricket(); };
     ensureCricket();
+    startCricketTimer();
   }
 
   function ensureCricket() {

@@ -20,8 +20,14 @@ export class CricketProvider implements ScoreProvider {
   readonly emoji = '🏏';
 
   private lastMatchId?: string;
+  private lastMatch?: Match;
   private cache?: { id: string; at: number; data: CricketScorecard };
   private static readonly CACHE_MS = 30000;
+
+  // Free-tier safety: stop calling the API before the daily 100-call limit.
+  private callsToday = 0;
+  private dayKey = '';
+  private static readonly DAILY_BUDGET = 95;
 
   constructor(
     private readonly useMockData: boolean,
@@ -81,12 +87,12 @@ export class CricketProvider implements ScoreProvider {
    * user's favorite teams, then falls back to the next fixture / recent result.
    */
   private async live(): Promise<Match> {
+    // Out of daily budget: keep showing the last known score instead of calling.
+    if (this.overBudget()) {
+      return this.lastMatch ?? this.idle();
+    }
     try {
-      const res = await fetch(`https://api.cricapi.com/v1/cricScore?apikey=${this.apiKey}`);
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const json: any = await res.json();
+      const json: any = await this.json(`https://api.cricapi.com/v1/cricScore?apikey=${this.apiKey}`);
       const data: any[] = json.data || [];
       if (!data.length) {
         return this.idle();
@@ -124,7 +130,7 @@ export class CricketProvider implements ScoreProvider {
           right: (m.t1s || m.t2s || m.status || '').slice(0, 24),
         }));
 
-      return {
+      const match: Match = {
         sport: 'cricket',
         state: isLive ? 'live' : isFixture ? 'upcoming' : 'idle',
         emoji: this.emoji,
@@ -143,6 +149,8 @@ export class CricketProvider implements ScoreProvider {
           others,
         },
       };
+      this.lastMatch = match;
+      return match;
     } catch (err: any) {
       return this.error(err?.message ?? 'fetch failed');
     }
@@ -168,6 +176,13 @@ export class CricketProvider implements ScoreProvider {
     // Serve from cache when fresh.
     if (this.cache && this.cache.id === id && Date.now() - this.cache.at < CricketProvider.CACHE_MS) {
       return this.cache.data;
+    }
+    // Out of daily budget: return the last scorecard rather than calling again.
+    if (this.overBudget()) {
+      if (this.cache && this.cache.id === id) {
+        return this.cache.data;
+      }
+      throw new Error('Daily cricket API limit reached — resumes tomorrow');
     }
 
     const [info, card] = await Promise.all([
@@ -231,11 +246,32 @@ export class CricketProvider implements ScoreProvider {
   }
 
   private async json(url: string): Promise<any> {
+    this.tick();
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
     return res.json();
+  }
+
+  /** Count a call, resetting the counter each UTC day. */
+  private tick(): void {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today !== this.dayKey) {
+      this.dayKey = today;
+      this.callsToday = 0;
+    }
+    this.callsToday++;
+  }
+
+  /** True once we are at/over the daily budget. */
+  private overBudget(): boolean {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today !== this.dayKey) {
+      this.dayKey = today;
+      this.callsToday = 0;
+    }
+    return this.callsToday >= CricketProvider.DAILY_BUDGET;
   }
 
   private titleCase(s: string): string {
