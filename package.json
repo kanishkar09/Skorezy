@@ -49,7 +49,17 @@
         "sportbar.useMockData": {
           "type": "boolean",
           "default": true,
-          "description": "Use built-in sample data instead of live APIs (great for development)."
+          "description": "Use built-in sample data when a sport has no API key. A sport with a key always shows live data."
+        },
+        "sportbar.cricket.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "API key from [CricketData.org](https://cricketdata.org). When set, cricket shows live data."
+        },
+        "sportbar.football.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "API token from [football-data.org](https://www.football-data.org). When set, football shows live data."
         }
       }
     }

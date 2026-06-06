@@ -36,8 +36,8 @@ function bootstrap(context: vscode.ExtensionContext): void {
   const cfg = getConfig();
 
   const allProviders: Record<string, () => ScoreProvider> = {
-    cricket: () => new CricketProvider(cfg.useMockData),
-    football: () => new FootballProvider(cfg.useMockData),
+    cricket: () => new CricketProvider(cfg.useMockData, cfg.cricketApiKey || undefined),
+    football: () => new FootballProvider(cfg.useMockData, cfg.footballApiKey || undefined),
     f1: () => new F1Provider(cfg.useMockData),
   };
 

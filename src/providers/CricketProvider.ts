@@ -15,10 +15,12 @@ export class CricketProvider implements ScoreProvider {
   constructor(private readonly useMockData: boolean, private readonly apiKey?: string) {}
 
   async fetch(): Promise<Match> {
-    if (this.useMockData || !this.apiKey) {
-      return this.mock();
+    // A configured key always wins: show live data. Otherwise fall back to
+    // mock data (dev default) or an idle state.
+    if (this.apiKey) {
+      return this.live();
     }
-    return this.live();
+    return this.useMockData ? this.mock() : this.idle();
   }
 
   private mock(): Match {
