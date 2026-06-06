@@ -8,6 +8,7 @@ export interface SportbarConfig {
   statusBarMaxLength: number;
   useMockData: boolean;
   cricketApiKey: string;
+  cricketFavoriteTeams: string[];
   footballApiKey: string;
 }
 
@@ -21,6 +22,7 @@ export function getConfig(): SportbarConfig {
     statusBarMaxLength: c.get<number>('statusBarMaxLength', 30),
     useMockData: c.get<boolean>('useMockData', true),
     cricketApiKey: c.get<string>('cricket.apiKey', '').trim(),
+    cricketFavoriteTeams: c.get<string[]>('cricket.favoriteTeams', []),
     footballApiKey: c.get<string>('football.apiKey', '').trim(),
   };
 }

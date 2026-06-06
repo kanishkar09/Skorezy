@@ -56,6 +56,12 @@
           "default": "",
           "markdownDescription": "API key from [CricketData.org](https://cricketdata.org). When set, cricket shows live data."
         },
+        "sportbar.cricket.favoriteTeams": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Preferred teams (e.g. \"India\"). When one is playing live, it is shown first."
+        },
         "sportbar.football.apiKey": {
           "type": "string",
           "default": "",

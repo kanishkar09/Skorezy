@@ -12,7 +12,11 @@ export class CricketProvider implements ScoreProvider {
   readonly id = 'cricket' as const;
   readonly emoji = '🏏';
 
-  constructor(private readonly useMockData: boolean, private readonly apiKey?: string) {}
+  constructor(
+    private readonly useMockData: boolean,
+    private readonly apiKey?: string,
+    private readonly favoriteTeams: string[] = []
+  ) {}
 
   async fetch(): Promise<Match> {
     // A configured key always wins: show live data. Otherwise fall back to
@@ -60,45 +64,108 @@ export class CricketProvider implements ScoreProvider {
     };
   }
 
-  // Live CricketData.org integration. Returns the first live match found.
+  /**
+   * Live cricket via the cricScore endpoint (much broader coverage than
+   * currentMatches). Prefers in-progress ("live") matches, favouring the
+   * user's favorite teams, then falls back to the next fixture / recent result.
+   */
   private async live(): Promise<Match> {
     try {
-      const url = `https://api.cricapi.com/v1/currentMatches?apikey=${this.apiKey}&offset=0`;
-      const res = await fetch(url);
+      const res = await fetch(`https://api.cricapi.com/v1/cricScore?apikey=${this.apiKey}`);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       const json: any = await res.json();
-      const m = (json.data || []).find((x: any) => x.matchStarted && !x.matchEnded) || (json.data || [])[0];
-      if (!m) {
+      const data: any[] = json.data || [];
+      if (!data.length) {
         return this.idle();
       }
-      const scoreText = (m.score || [])
-        .map((s: any) => `${s.r}/${s.w} (${s.o})`)
-        .join('  ');
-      const compact = `${m.teams?.[0] ?? ''} ${(m.score?.[0] ? `${m.score[0].r}/${m.score[0].w}` : '')}`.trim();
+
+      const liveMatches = data.filter((m) => m.ms === 'live');
+      const chosen =
+        this.pickFavorite(liveMatches) ??
+        liveMatches[0] ??
+        this.pickFavorite(data.filter((m) => m.ms === 'fixture')) ??
+        data.find((m) => m.ms === 'fixture') ??
+        data[0];
+
+      const isLive = chosen.ms === 'live';
+      const isFixture = chosen.ms === 'fixture';
+      const c1 = this.code(chosen.t1);
+      const c2 = this.code(chosen.t2);
+
+      const parts: string[] = [];
+      if (chosen.t1s) {
+        parts.push(`${c1} ${chosen.t1s}`);
+      }
+      if (chosen.t2s) {
+        parts.push(`${c2} ${chosen.t2s}`);
+      }
+      const compact = parts.length ? parts.join(' · ') : `${c1} v ${c2}`;
+
+      // List a few other live matches for context.
+      const others = liveMatches
+        .filter((m) => m !== chosen)
+        .slice(0, 4)
+        .map((m) => ({
+          left: `${this.code(m.t1)} v ${this.code(m.t2)}`,
+          right: (m.t1s || m.t2s || m.status || '').slice(0, 24),
+        }));
+
       return {
         sport: 'cricket',
-        state: m.matchStarted && !m.matchEnded ? 'live' : 'idle',
+        state: isLive ? 'live' : isFixture ? 'upcoming' : 'idle',
         emoji: this.emoji,
-        statusBarText: compact || m.name,
-        tooltip: m.status || m.name,
+        statusBarText: compact,
+        tooltip: `${this.clean(chosen.t1)} vs ${this.clean(chosen.t2)} — ${chosen.status}`,
         detail: {
           sport: 'cricket',
-          state: m.matchStarted && !m.matchEnded ? 'live' : 'idle',
-          title: m.name,
-          subtitle: m.venue,
-          teams: (m.teams || []).map((t: string, i: number) => ({
-            name: t,
-            score: m.score?.[i] ? `${m.score[i].r}/${m.score[i].w} (${m.score[i].o})` : undefined,
-          })),
-          meta: [{ label: 'Status', value: m.status || '—' }],
-          others: [],
+          state: isLive ? 'live' : isFixture ? 'upcoming' : 'idle',
+          title: chosen.series || 'Cricket',
+          subtitle: chosen.status,
+          teams: [
+            { name: this.clean(chosen.t1), score: chosen.t1s || undefined },
+            { name: this.clean(chosen.t2), score: chosen.t2s || undefined },
+          ],
+          meta: [{ label: 'Status', value: chosen.status || '—', highlight: isLive }],
+          others,
         },
       };
     } catch (err: any) {
       return this.error(err?.message ?? 'fetch failed');
     }
+  }
+
+  /** Pick the first match involving a favorite team, or undefined. */
+  private pickFavorite(list: any[]): any | undefined {
+    if (!this.favoriteTeams.length) {
+      return undefined;
+    }
+    const favs = this.favoriteTeams.map((f) => f.toLowerCase());
+    return list.find(
+      (m) => this.isFavorite(m.t1, favs) || this.isFavorite(m.t2, favs)
+    );
+  }
+
+  /** Exact match on cleaned name or code — so "India" != "Indian Royals". */
+  private isFavorite(team: string, favs: string[]): boolean {
+    const name = this.clean(team).toLowerCase();
+    const code = this.code(team).toLowerCase();
+    return favs.some((f) => f === name || f === code);
+  }
+
+  /** "India [IND]" -> "IND"; falls back to first 3 letters. */
+  private code(team: string): string {
+    const m = /\[([^\]]+)\]/.exec(team || '');
+    if (m) {
+      return m[1];
+    }
+    return (team || '').replace(/\s*\[.*\]/, '').slice(0, 3).toUpperCase();
+  }
+
+  /** "India [IND]" -> "India". */
+  private clean(team: string): string {
+    return (team || '').replace(/\s*\[[^\]]*\]/, '').trim();
   }
 
   private idle(): Match {
