@@ -10,6 +10,7 @@ import { F1Provider } from './providers/F1Provider';
 
 let manager: ScoreManager | undefined;
 let statusBar: StatusBar | undefined;
+let f1Provider: F1Provider | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   bootstrap(context);
@@ -26,7 +27,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sportbar.showPanel', () => {
-      DetailPanel.show(manager?.matches ?? []);
+      DetailPanel.show(
+        manager?.matches ?? [],
+        f1Provider ? () => f1Provider!.getTrackMap() : undefined
+      );
     }),
     vscode.commands.registerCommand('sportbar.refresh', () => manager?.refreshNow())
   );
@@ -44,6 +48,8 @@ function bootstrap(context: vscode.ExtensionContext): void {
   const providers = cfg.enabledSports
     .filter((s) => s in allProviders)
     .map((s) => allProviders[s]());
+
+  f1Provider = providers.find((p) => p.id === 'f1') as F1Provider | undefined;
 
   statusBar = new StatusBar(
     providers.map((p) => p.id),
@@ -64,6 +70,7 @@ function teardown(): void {
   statusBar?.dispose();
   manager = undefined;
   statusBar = undefined;
+  f1Provider = undefined;
 }
 
 export function deactivate(): void {

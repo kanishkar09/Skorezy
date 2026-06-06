@@ -1,4 +1,4 @@
-import { Match, ScoreProvider } from '../core/types';
+import { Match, ScoreProvider, TrackMapData, TrackMapFrame } from '../core/types';
 
 /**
  * Formula 1.
@@ -86,6 +86,125 @@ export class F1Provider implements ScoreProvider {
     } catch (err: any) {
       return this.error(err?.message ?? 'fetch failed');
     }
+  }
+
+  /**
+   * Build a track map (car positions over time) from OpenF1.
+   * Keyless. Uses the most recent race session; if that race is live it shows
+   * the latest 60s, otherwise it replays a 60s window from mid-race.
+   */
+  async getTrackMap(): Promise<TrackMapData> {
+    const session = await this.latestRaceSession();
+    const key = session.session_key;
+
+    const drivers: any[] = await this.json(
+      `https://api.openf1.org/v1/drivers?session_key=${key}`
+    );
+    const cars = drivers.map((d) => ({
+      num: d.driver_number as number,
+      acronym: (d.name_acronym as string) ?? String(d.driver_number),
+      color: '#' + ((d.team_colour as string) || '888888'),
+    }));
+
+    // Decide the time window.
+    const sessionStart = new Date(session.date_start).getTime();
+    const sessionEnd = session.date_end ? new Date(session.date_end).getTime() : sessionStart + 7200000;
+    const now = Date.now();
+    const isLive = now >= sessionStart && now <= sessionEnd;
+
+    let from: Date;
+    let to: Date;
+    if (isLive) {
+      to = new Date(now);
+      from = new Date(now - 60000);
+    } else {
+      from = new Date(sessionStart + 15 * 60000); // 15 min into the race
+      to = new Date(from.getTime() + 60000);
+    }
+
+    const loc: any[] = await this.json(
+      `https://api.openf1.org/v1/location?session_key=${key}` +
+        `&date>=${this.iso(from)}&date<=${this.iso(to)}`
+    );
+
+    // Bucket into 1-second frames; last sample in each second wins.
+    const bySec = new Map<number, Map<number, { x: number; y: number }>>();
+    const all: { x: number; y: number }[] = [];
+    for (const p of loc) {
+      if (p.x === 0 && p.y === 0) {
+        continue; // skip pit/garage zeros
+      }
+      const t = Math.floor(new Date(p.date).getTime() / 1000);
+      if (!bySec.has(t)) {
+        bySec.set(t, new Map());
+      }
+      bySec.get(t)!.set(p.driver_number, { x: p.x, y: p.y });
+      all.push({ x: p.x, y: p.y });
+    }
+
+    const frames: TrackMapFrame[] = [...bySec.keys()]
+      .sort((a, b) => a - b)
+      .map((s) => ({
+        cars: [...bySec.get(s)!.entries()].map(([num, pos]) => ({ num, x: pos.x, y: pos.y })),
+      }));
+
+    // Trace the circuit by sampling all recorded points.
+    const step = Math.max(1, Math.floor(all.length / 1500));
+    const outline = all.filter((_, i) => i % step === 0);
+
+    const xs = all.map((p) => p.x);
+    const ys = all.map((p) => p.y);
+    const bounds = {
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minY: Math.min(...ys),
+      maxY: Math.max(...ys),
+    };
+
+    return {
+      sessionName: `${session.country_name ?? ''} GP ${session.year ?? ''}`.trim(),
+      circuit: session.circuit_short_name ?? '',
+      live: isLive,
+      cars,
+      frames,
+      outline,
+      bounds,
+    };
+  }
+
+  private async latestRaceSession(): Promise<any> {
+    const year = new Date().getFullYear();
+    const now = Date.now();
+    // A race only has telemetry once it has started — ignore future fixtures.
+    const started = (list: any[]) =>
+      list
+        .filter((s) => new Date(s.date_start).getTime() <= now)
+        .sort((a, b) => new Date(b.date_start).getTime() - new Date(a.date_start).getTime());
+
+    let past = started(
+      await this.json(`https://api.openf1.org/v1/sessions?year=${year}&session_type=Race`)
+    );
+    if (!past.length) {
+      past = started(
+        await this.json(`https://api.openf1.org/v1/sessions?year=${year - 1}&session_type=Race`)
+      );
+    }
+    if (!past.length) {
+      throw new Error('No completed F1 race found');
+    }
+    return past[0];
+  }
+
+  private async json(url: string): Promise<any> {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`OpenF1 HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  private iso(d: Date): string {
+    return d.toISOString().replace('Z', '+00:00');
   }
 
   private short(name: string): string {

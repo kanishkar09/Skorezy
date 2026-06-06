@@ -1,15 +1,19 @@
 import * as vscode from 'vscode';
-import { Match } from '../core/types';
+import { Match, TrackMapData } from '../core/types';
+
+export type MapLoader = () => Promise<TrackMapData>;
 
 /** Singleton webview panel showing full detail for all sports, with tabs. */
 export class DetailPanel {
   private static current: DetailPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
   private latest: Match[] = [];
+  private mapLoader?: MapLoader;
   private disposables: vscode.Disposable[] = [];
 
-  static show(matches: Match[]): void {
+  static show(matches: Match[], mapLoader?: MapLoader): void {
     if (DetailPanel.current) {
+      DetailPanel.current.mapLoader = mapLoader ?? DetailPanel.current.mapLoader;
       DetailPanel.current.panel.reveal(vscode.ViewColumn.Beside);
       DetailPanel.current.setMatches(matches);
       return;
@@ -20,7 +24,7 @@ export class DetailPanel {
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true }
     );
-    DetailPanel.current = new DetailPanel(panel, matches);
+    DetailPanel.current = new DetailPanel(panel, matches, mapLoader);
   }
 
   /** Push fresh data to an already-open panel (called by the poller). */
@@ -28,21 +32,39 @@ export class DetailPanel {
     DetailPanel.current?.setMatches(matches);
   }
 
-  private constructor(panel: vscode.WebviewPanel, matches: Match[]) {
+  private constructor(panel: vscode.WebviewPanel, matches: Match[], mapLoader?: MapLoader) {
     this.panel = panel;
     this.latest = matches;
+    this.mapLoader = mapLoader;
     this.panel.webview.html = this.html();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-    // Send data once the webview signals it is ready.
     this.panel.webview.onDidReceiveMessage(
-      (msg) => {
+      async (msg) => {
         if (msg?.type === 'ready') {
           this.post();
+        } else if (msg?.type === 'requestF1Map') {
+          await this.sendMap();
         }
       },
       null,
       this.disposables
     );
+  }
+
+  private async sendMap(): Promise<void> {
+    if (!this.mapLoader) {
+      this.panel.webview.postMessage({ type: 'f1MapError', message: 'Map not available' });
+      return;
+    }
+    try {
+      const data = await this.mapLoader();
+      this.panel.webview.postMessage({ type: 'f1Map', data });
+    } catch (err: any) {
+      this.panel.webview.postMessage({
+        type: 'f1MapError',
+        message: err?.message ?? 'Failed to load track map',
+      });
+    }
   }
 
   private setMatches(matches: Match[]): void {
@@ -100,6 +122,23 @@ export class DetailPanel {
   .mini { display:flex; justify-content:space-between; padding:6px 0;
     border-bottom:1px solid var(--vscode-panel-border); font-size:12px; }
   .empty { color:var(--vscode-descriptionForeground); padding:24px; text-align:center; }
+  /* F1 sub-toggle */
+  .subtoggle { display:flex; gap:6px; margin-bottom:12px; }
+  .subtoggle button { flex:1; padding:6px 10px; font-size:12px; cursor:pointer; border-radius:6px;
+    border:1px solid var(--vscode-panel-border); background:var(--vscode-editorWidget-background);
+    color:var(--vscode-foreground); }
+  .subtoggle button.active { background:var(--vscode-button-background); color:var(--vscode-button-foreground);
+    border-color:var(--vscode-button-background); }
+  /* Track map */
+  .mapwrap { display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+  #track { background:var(--vscode-editorWidget-background); border:1px solid var(--vscode-panel-border);
+    border-radius:8px; flex:1; min-width:220px; }
+  .grid { font-size:11px; min-width:120px; }
+  .grid .pos { display:flex; align-items:center; gap:6px; padding:3px 0; }
+  .grid .swatch { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .maptitle { font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:8px; }
+  .replaybadge { display:inline-block; font-size:9px; padding:1px 6px; border-radius:8px;
+    background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); margin-left:6px; }
 </style>
 </head>
 <body>
@@ -129,7 +168,12 @@ export class DetailPanel {
     const body = document.getElementById('body');
     const m = matches[active];
     if (!m) { body.innerHTML = '<div class="empty">No data</div>'; return; }
-    const d = m.detail;
+    if (m.sport === 'f1') { renderF1(m); return; }
+    stopAnim();
+    body.innerHTML = buildDetail(m.detail);
+  }
+
+  function buildDetail(d) {
     let html = '<div class="card">';
     html += badge(d.state);
     if (d.subtitle) html += '<div class="sub">' + esc(d.title) + ' · ' + esc(d.subtitle) + '</div>';
@@ -155,8 +199,87 @@ export class DetailPanel {
       d.others.forEach(o => { html += '<div class="mini"><span>' + esc(o.left) + '</span><span>' +
         esc(o.right) + '</span></div>'; });
     }
-    body.innerHTML = html;
+    return html;
   }
+
+  // ---- F1: Schedule | Track Map ----
+  let f1View = 'schedule';
+  let mapData = null;
+  let mapStatus = 'idle'; // idle | loading | ready | error
+  let mapError = '';
+  let anim = null;
+  let frameIdx = 0;
+
+  function renderF1(m) {
+    const body = document.getElementById('body');
+    let html = '<div class="subtoggle">' +
+      '<button id="f1-sched" class="' + (f1View==='schedule'?'active':'') + '">📅 Schedule</button>' +
+      '<button id="f1-map" class="' + (f1View==='map'?'active':'') + '">🗺️ Track Map</button>' +
+      '</div>';
+    html += (f1View === 'schedule') ? buildDetail(m.detail) : '<div id="mapcontainer"></div>';
+    body.innerHTML = html;
+    document.getElementById('f1-sched').onclick = () => { f1View='schedule'; stopAnim(); render(); };
+    document.getElementById('f1-map').onclick = () => { f1View='map'; render(); };
+    if (f1View === 'map') { renderMap(); } else { stopAnim(); }
+  }
+
+  function renderMap() {
+    const c = document.getElementById('mapcontainer');
+    if (!c) return;
+    if (mapStatus === 'idle') { mapStatus = 'loading'; vscode.postMessage({ type: 'requestF1Map' }); }
+    if (mapStatus === 'loading') { c.innerHTML = '<div class="empty">Loading track map…</div>'; return; }
+    if (mapStatus === 'error') { c.innerHTML = '<div class="empty">⚠ ' + esc(mapError) + '</div>'; return; }
+    if (!mapData || !mapData.frames.length) { c.innerHTML = '<div class="empty">No position data</div>'; return; }
+    c.innerHTML =
+      '<div class="maptitle">' + esc(mapData.sessionName) + ' · ' + esc(mapData.circuit) +
+        (mapData.live ? '<span class="replaybadge" style="background:#c0392b;color:#fff">LIVE</span>'
+                      : '<span class="replaybadge">REPLAY</span>') + '</div>' +
+      '<div class="mapwrap"><canvas id="track" width="300" height="260"></canvas>' +
+      '<div class="grid" id="grid"></div></div>';
+    startAnim();
+  }
+
+  function startAnim() {
+    stopAnim();
+    frameIdx = 0;
+    const canvas = document.getElementById('track');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, pad = 16;
+    const b = mapData.bounds;
+    const spanX = (b.maxX - b.minX) || 1, spanY = (b.maxY - b.minY) || 1;
+    const scale = Math.min((W - pad*2)/spanX, (H - pad*2)/spanY);
+    const offX = (W - spanX*scale)/2, offY = (H - spanY*scale)/2;
+    const sx = x => offX + (x - b.minX)*scale;
+    const sy = y => H - (offY + (y - b.minY)*scale);
+    const colorOf = {}, acrOf = {};
+    mapData.cars.forEach(car => { colorOf[car.num]=car.color; acrOf[car.num]=car.acronym; });
+
+    function draw() {
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle = 'rgba(140,140,140,0.30)';
+      mapData.outline.forEach(p => { ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y), 1.1, 0, 6.283); ctx.fill(); });
+      const frame = mapData.frames[frameIdx];
+      (frame ? frame.cars : []).forEach(car => {
+        const px = sx(car.x), py = sy(car.y);
+        ctx.beginPath(); ctx.fillStyle = colorOf[car.num] || '#fff';
+        ctx.arc(px, py, 4, 0, 6.283); ctx.fill();
+      });
+      const grid = document.getElementById('grid');
+      if (grid) {
+        let g = '<div class="maptitle">Frame ' + (frameIdx+1) + '/' + mapData.frames.length + '</div>';
+        mapData.cars.forEach(car => {
+          g += '<div class="pos"><span class="swatch" style="background:' + car.color + '"></span>' + esc(car.acronym) + '</div>';
+        });
+        grid.innerHTML = g;
+      }
+      frameIdx = (frameIdx + 1) % mapData.frames.length;
+    }
+    draw();
+    anim = setInterval(draw, 120);
+  }
+
+  function stopAnim() { if (anim) { clearInterval(anim); anim = null; } }
 
   function badge(state){
     const dot = state==='live' ? '<span class="dot"></span>' : '';
@@ -165,10 +288,17 @@ export class DetailPanel {
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
   window.addEventListener('message', e => {
-    if (e.data?.type === 'update') {
-      matches = e.data.matches || [];
+    const msg = e.data || {};
+    if (msg.type === 'update') {
+      matches = msg.matches || [];
       if (active >= matches.length) active = 0;
       render();
+    } else if (msg.type === 'f1Map') {
+      mapData = msg.data; mapStatus = 'ready';
+      if (f1View === 'map') renderMap();
+    } else if (msg.type === 'f1MapError') {
+      mapError = msg.message; mapStatus = 'error';
+      if (f1View === 'map') renderMap();
     }
   });
   vscode.postMessage({ type: 'ready' });

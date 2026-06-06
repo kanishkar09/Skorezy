@@ -48,6 +48,28 @@ export interface Match {
   detail: DetailView;
 }
 
+// ---- F1 live track map (OpenF1) ----
+
+export interface TrackMapCar {
+  num: number;
+  acronym: string;
+  color: string; // "#RRGGBB"
+}
+
+export interface TrackMapFrame {
+  cars: { num: number; x: number; y: number }[];
+}
+
+export interface TrackMapData {
+  sessionName: string;
+  circuit: string;
+  live: boolean;
+  cars: TrackMapCar[];
+  frames: TrackMapFrame[];
+  outline: { x: number; y: number }[];
+  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+}
+
 /** Contract every sport implements. Add a sport = add one of these. */
 export interface ScoreProvider {
   readonly id: SportId;
