@@ -1,19 +1,22 @@
 import * as vscode from 'vscode';
-import { Match, TrackMapData } from '../core/types';
+import { Match, TrackMapData, CricketScorecard } from '../core/types';
 
-export type MapLoader = () => Promise<TrackMapData>;
+export interface PanelLoaders {
+  f1Map?: () => Promise<TrackMapData>;
+  cricket?: () => Promise<CricketScorecard>;
+}
 
 /** Singleton webview panel showing full detail for all sports, with tabs. */
 export class DetailPanel {
   private static current: DetailPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
   private latest: Match[] = [];
-  private mapLoader?: MapLoader;
+  private loaders: PanelLoaders;
   private disposables: vscode.Disposable[] = [];
 
-  static show(matches: Match[], mapLoader?: MapLoader): void {
+  static show(matches: Match[], loaders: PanelLoaders = {}): void {
     if (DetailPanel.current) {
-      DetailPanel.current.mapLoader = mapLoader ?? DetailPanel.current.mapLoader;
+      DetailPanel.current.loaders = { ...DetailPanel.current.loaders, ...loaders };
       DetailPanel.current.panel.reveal(vscode.ViewColumn.Beside);
       DetailPanel.current.setMatches(matches);
       return;
@@ -24,7 +27,7 @@ export class DetailPanel {
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true }
     );
-    DetailPanel.current = new DetailPanel(panel, matches, mapLoader);
+    DetailPanel.current = new DetailPanel(panel, matches, loaders);
   }
 
   /** Push fresh data to an already-open panel (called by the poller). */
@@ -32,10 +35,10 @@ export class DetailPanel {
     DetailPanel.current?.setMatches(matches);
   }
 
-  private constructor(panel: vscode.WebviewPanel, matches: Match[], mapLoader?: MapLoader) {
+  private constructor(panel: vscode.WebviewPanel, matches: Match[], loaders: PanelLoaders) {
     this.panel = panel;
     this.latest = matches;
-    this.mapLoader = mapLoader;
+    this.loaders = loaders;
     this.panel.webview.html = this.html();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
@@ -44,6 +47,8 @@ export class DetailPanel {
           this.post();
         } else if (msg?.type === 'requestF1Map') {
           await this.sendMap();
+        } else if (msg?.type === 'requestCricket') {
+          await this.sendCricket();
         }
       },
       null,
@@ -52,17 +57,33 @@ export class DetailPanel {
   }
 
   private async sendMap(): Promise<void> {
-    if (!this.mapLoader) {
+    if (!this.loaders.f1Map) {
       this.panel.webview.postMessage({ type: 'f1MapError', message: 'Map not available' });
       return;
     }
     try {
-      const data = await this.mapLoader();
+      const data = await this.loaders.f1Map();
       this.panel.webview.postMessage({ type: 'f1Map', data });
     } catch (err: any) {
       this.panel.webview.postMessage({
         type: 'f1MapError',
         message: err?.message ?? 'Failed to load track map',
+      });
+    }
+  }
+
+  private async sendCricket(): Promise<void> {
+    if (!this.loaders.cricket) {
+      this.panel.webview.postMessage({ type: 'cricketError', message: 'Scorecard not available' });
+      return;
+    }
+    try {
+      const data = await this.loaders.cricket();
+      this.panel.webview.postMessage({ type: 'cricket', data });
+    } catch (err: any) {
+      this.panel.webview.postMessage({
+        type: 'cricketError',
+        message: err?.message ?? 'Failed to load scorecard',
       });
     }
   }
@@ -139,6 +160,21 @@ export class DetailPanel {
   .maptitle { font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:8px; }
   .replaybadge { display:inline-block; font-size:9px; padding:1px 6px; border-radius:8px;
     background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); margin-left:6px; }
+  /* Cricket scorecard */
+  .toss { font-size:11px; color:var(--vscode-descriptionForeground); margin:4px 0 2px; }
+  .venue { font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:8px; }
+  .sc-inning { font-size:12px; font-weight:600; margin:14px 0 6px; padding-bottom:4px;
+    border-bottom:1px solid var(--vscode-focusBorder); }
+  table.sc { width:100%; border-collapse:collapse; font-size:11px; margin-bottom:6px; }
+  table.sc th { text-align:right; color:var(--vscode-descriptionForeground); font-weight:500;
+    padding:3px 5px; border-bottom:1px solid var(--vscode-panel-border); }
+  table.sc th.name, table.sc td.name { text-align:left; }
+  table.sc td { padding:3px 5px; border-bottom:1px solid var(--vscode-panel-border); text-align:right; }
+  table.sc td .out { display:block; color:var(--vscode-descriptionForeground); font-size:9px; }
+  .notout { color:#27ae60; font-weight:600; }
+  .refreshbtn { float:right; font-size:11px; cursor:pointer; padding:2px 8px; border-radius:5px;
+    border:1px solid var(--vscode-panel-border); background:var(--vscode-editorWidget-background);
+    color:var(--vscode-foreground); }
 </style>
 </head>
 <body>
@@ -170,6 +206,7 @@ export class DetailPanel {
     if (!m) { body.innerHTML = '<div class="empty">No data</div>'; return; }
     if (m.sport === 'f1') { renderF1(m); return; }
     stopAnim();
+    if (m.sport === 'cricket') { renderCricket(m); return; }
     body.innerHTML = buildDetail(m.detail);
   }
 
@@ -281,6 +318,60 @@ export class DetailPanel {
 
   function stopAnim() { if (anim) { clearInterval(anim); anim = null; } }
 
+  // ---- Cricket: basic card + lazy full scorecard ----
+  let cricketData = null;
+  let cricketStatus = 'idle'; // idle | loading | ready | error
+  let cricketError = '';
+
+  function renderCricket(m) {
+    const body = document.getElementById('body');
+    body.innerHTML = buildDetail(m.detail) +
+      '<div class="sectitle" style="margin-top:14px">Full scorecard ' +
+      '<span class="refreshbtn" id="cric-refresh">↻ Refresh</span></div>' +
+      '<div id="cricketcard"></div>';
+    const rb = document.getElementById('cric-refresh');
+    if (rb) rb.onclick = () => { cricketStatus = 'idle'; ensureCricket(); };
+    ensureCricket();
+  }
+
+  function ensureCricket() {
+    const c = document.getElementById('cricketcard');
+    if (!c) return;
+    if (cricketStatus === 'idle') { cricketStatus = 'loading'; vscode.postMessage({ type: 'requestCricket' }); }
+    if (cricketStatus === 'loading') { c.innerHTML = '<div class="empty">Loading scorecard…</div>'; return; }
+    if (cricketStatus === 'error') { c.innerHTML = '<div class="empty">⚠ ' + esc(cricketError) + '</div>'; return; }
+    if (!cricketData) { c.innerHTML = '<div class="empty">No scorecard</div>'; return; }
+    c.innerHTML = buildScorecard(cricketData);
+  }
+
+  function buildScorecard(d) {
+    let html = '';
+    if (d.toss) html += '<div class="toss">🪙 ' + esc(d.toss) + '</div>';
+    if (d.venue) html += '<div class="venue">📍 ' + esc(d.venue) + '</div>';
+    (d.innings || []).forEach(inn => {
+      html += '<div class="sc-inning">' + esc(inn.title) + '</div>';
+      if ((inn.batting||[]).length) {
+        html += '<table class="sc"><tr><th class="name">Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr>';
+        inn.batting.forEach(b => {
+          html += '<tr><td class="name">' + esc(b.name) +
+            (b.notOut ? ' <span class="notout">*</span>' : '') +
+            '<span class="out">' + esc(b.out) + '</span></td>' +
+            '<td>' + b.runs + '</td><td>' + b.balls + '</td><td>' + b.fours + '</td><td>' + b.sixes + '</td><td>' + b.sr + '</td></tr>';
+        });
+        html += '</table>';
+      }
+      if ((inn.bowling||[]).length) {
+        html += '<table class="sc"><tr><th class="name">Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th></tr>';
+        inn.bowling.forEach(bw => {
+          html += '<tr><td class="name">' + esc(bw.name) + '</td>' +
+            '<td>' + bw.overs + '</td><td>' + bw.maidens + '</td><td>' + bw.runs + '</td><td>' + bw.wickets + '</td><td>' + bw.econ + '</td></tr>';
+        });
+        html += '</table>';
+      }
+    });
+    return html || '<div class="empty">Scorecard not available yet</div>';
+  }
+
   function badge(state){
     const dot = state==='live' ? '<span class="dot"></span>' : '';
     return '<span class="badge ' + state + '">' + dot + state + '</span>';
@@ -299,6 +390,12 @@ export class DetailPanel {
     } else if (msg.type === 'f1MapError') {
       mapError = msg.message; mapStatus = 'error';
       if (f1View === 'map') renderMap();
+    } else if (msg.type === 'cricket') {
+      cricketData = msg.data; cricketStatus = 'ready';
+      if (matches[active] && matches[active].sport === 'cricket') ensureCricket();
+    } else if (msg.type === 'cricketError') {
+      cricketError = msg.message; cricketStatus = 'error';
+      if (matches[active] && matches[active].sport === 'cricket') ensureCricket();
     }
   });
   vscode.postMessage({ type: 'ready' });

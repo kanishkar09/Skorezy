@@ -48,6 +48,44 @@ export interface Match {
   detail: DetailView;
 }
 
+// ---- Cricket full scorecard (CricketData.org) ----
+
+export interface BatterLine {
+  name: string;
+  runs: number;
+  balls: number;
+  fours: number;
+  sixes: number;
+  sr: number;
+  out: string; // "batting" or dismissal text
+  notOut: boolean;
+}
+
+export interface BowlerLine {
+  name: string;
+  overs: number;
+  maidens: number;
+  runs: number;
+  wickets: number;
+  econ: number;
+}
+
+export interface InningsCard {
+  title: string;
+  batting: BatterLine[];
+  bowling: BowlerLine[];
+}
+
+export interface CricketScorecard {
+  name: string;
+  series: string;
+  venue: string;
+  status: string;
+  toss: string;
+  teams: { name: string; short: string; score?: string }[];
+  innings: InningsCard[];
+}
+
 // ---- F1 live track map (OpenF1) ----
 
 export interface TrackMapCar {

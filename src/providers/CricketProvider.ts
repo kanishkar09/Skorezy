@@ -1,4 +1,11 @@
-import { Match, ScoreProvider } from '../core/types';
+import {
+  Match,
+  ScoreProvider,
+  CricketScorecard,
+  InningsCard,
+  BatterLine,
+  BowlerLine,
+} from '../core/types';
 
 /**
  * Cricket scores.
@@ -11,6 +18,10 @@ import { Match, ScoreProvider } from '../core/types';
 export class CricketProvider implements ScoreProvider {
   readonly id = 'cricket' as const;
   readonly emoji = '🏏';
+
+  private lastMatchId?: string;
+  private cache?: { id: string; at: number; data: CricketScorecard };
+  private static readonly CACHE_MS = 30000;
 
   constructor(
     private readonly useMockData: boolean,
@@ -89,6 +100,7 @@ export class CricketProvider implements ScoreProvider {
         data.find((m) => m.ms === 'fixture') ??
         data[0];
 
+      this.lastMatchId = chosen.id;
       const isLive = chosen.ms === 'live';
       const isFixture = chosen.ms === 'fixture';
       const c1 = this.code(chosen.t1);
@@ -134,6 +146,100 @@ export class CricketProvider implements ScoreProvider {
     } catch (err: any) {
       return this.error(err?.message ?? 'fetch failed');
     }
+  }
+
+  /**
+   * Full scorecard for the currently-tracked match. Lazy-loaded (only when the
+   * cricket tab is opened) and cached for 30s to respect the free-tier quota.
+   */
+  async getScorecard(): Promise<CricketScorecard> {
+    if (!this.apiKey) {
+      throw new Error('No cricket API key configured');
+    }
+    // Resolve a match id if we don't have one yet.
+    let id = this.lastMatchId;
+    if (!id) {
+      await this.live();
+      id = this.lastMatchId;
+    }
+    if (!id) {
+      throw new Error('No live match to show');
+    }
+    // Serve from cache when fresh.
+    if (this.cache && this.cache.id === id && Date.now() - this.cache.at < CricketProvider.CACHE_MS) {
+      return this.cache.data;
+    }
+
+    const [info, card] = await Promise.all([
+      this.json(`https://api.cricapi.com/v1/match_info?apikey=${this.apiKey}&id=${id}`),
+      this.json(`https://api.cricapi.com/v1/match_scorecard?apikey=${this.apiKey}&id=${id}`),
+    ]);
+
+    const infoData = info.data || {};
+    const cardData = card.data || {};
+    const teamInfo: any[] = infoData.teamInfo || cardData.teamInfo || [];
+    const scores: any[] = infoData.score || cardData.score || [];
+
+    const teams = (infoData.teams || cardData.teams || []).map((name: string) => {
+      const ti = teamInfo.find((t) => t.name === name);
+      const sc = scores.filter((s) => (s.inning || '').toLowerCase().startsWith(name.toLowerCase()));
+      const scoreStr = sc.map((s) => `${s.r}/${s.w} (${s.o})`).join(' & ');
+      return { name, short: ti?.shortname ?? this.code(name), score: scoreStr || undefined };
+    });
+
+    const innings: InningsCard[] = (cardData.scorecard || []).map((inn: any) => ({
+      title: inn.inning,
+      batting: (inn.batting || []).map(
+        (b: any): BatterLine => ({
+          name: b.batsman?.name ?? '—',
+          runs: b.r ?? 0,
+          balls: b.b ?? 0,
+          fours: b['4s'] ?? 0,
+          sixes: b['6s'] ?? 0,
+          sr: b.sr ?? 0,
+          out: b['dismissal-text'] || 'batting',
+          notOut: (b['dismissal-text'] || '').toLowerCase() === 'batting' || !b['dismissal-text'],
+        })
+      ),
+      bowling: (inn.bowling || []).map(
+        (bw: any): BowlerLine => ({
+          name: bw.bowler?.name ?? '—',
+          overs: bw.o ?? 0,
+          maidens: bw.m ?? 0,
+          runs: bw.r ?? 0,
+          wickets: bw.w ?? 0,
+          econ: bw.eco ?? 0,
+        })
+      ),
+    }));
+
+    const tossName = infoData.tossWinner ? this.titleCase(infoData.tossWinner) : '';
+    const toss = tossName ? `${tossName} won the toss & chose to ${infoData.tossChoice ?? 'bat'}` : '';
+
+    const result: CricketScorecard = {
+      name: infoData.name || cardData.name || 'Match',
+      series: infoData.name || '',
+      venue: infoData.venue || '',
+      status: infoData.status || cardData.status || '',
+      toss,
+      teams,
+      innings,
+    };
+
+    this.cache = { id, at: Date.now(), data: result };
+    return result;
+  }
+
+  private async json(url: string): Promise<any> {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  private titleCase(s: string): string {
+    return s.replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   /** Pick the first match involving a favorite team, or undefined. */

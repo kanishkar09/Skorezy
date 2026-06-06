@@ -11,6 +11,7 @@ import { F1Provider } from './providers/F1Provider';
 let manager: ScoreManager | undefined;
 let statusBar: StatusBar | undefined;
 let f1Provider: F1Provider | undefined;
+let cricketProvider: CricketProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   bootstrap(context);
@@ -27,10 +28,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sportbar.showPanel', () => {
-      DetailPanel.show(
-        manager?.matches ?? [],
-        f1Provider ? () => f1Provider!.getTrackMap() : undefined
-      );
+      DetailPanel.show(manager?.matches ?? [], {
+        f1Map: f1Provider ? () => f1Provider!.getTrackMap() : undefined,
+        cricket: cricketProvider ? () => cricketProvider!.getScorecard() : undefined,
+      });
     }),
     vscode.commands.registerCommand('sportbar.refresh', () => manager?.refreshNow())
   );
@@ -51,6 +52,7 @@ function bootstrap(context: vscode.ExtensionContext): void {
     .map((s) => allProviders[s]());
 
   f1Provider = providers.find((p) => p.id === 'f1') as F1Provider | undefined;
+  cricketProvider = providers.find((p) => p.id === 'cricket') as CricketProvider | undefined;
 
   statusBar = new StatusBar(
     providers.map((p) => p.id),
@@ -72,6 +74,7 @@ function teardown(): void {
   manager = undefined;
   statusBar = undefined;
   f1Provider = undefined;
+  cricketProvider = undefined;
 }
 
 export function deactivate(): void {
