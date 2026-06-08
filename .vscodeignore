@@ -1,0 +1,16 @@
+# Source & build config (only compiled out/ is shipped)
+src/**
+**/*.ts
+**/*.map
+tsconfig.json
+.gitignore
+.vscodeignore
+
+# Dev / editor files — NEVER ship local settings (may contain API keys)
+.vscode/**
+.git/**
+node_modules/**
+
+# Misc
+_*.js
+*.vsix

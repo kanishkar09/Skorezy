@@ -43,7 +43,7 @@ function bootstrap(context: vscode.ExtensionContext): void {
   const allProviders: Record<string, () => ScoreProvider> = {
     cricket: () =>
       new CricketProvider(cfg.useMockData, cfg.cricketApiKey || undefined, cfg.cricketFavoriteTeams),
-    football: () => new FootballProvider(cfg.useMockData, cfg.footballApiKey || undefined),
+    football: () => new FootballProvider(cfg.footballLeagues, cfg.footballFavoriteTeams),
     f1: () => new F1Provider(cfg.useMockData),
   };
 

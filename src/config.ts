@@ -9,20 +9,22 @@ export interface SportbarConfig {
   useMockData: boolean;
   cricketApiKey: string;
   cricketFavoriteTeams: string[];
-  footballApiKey: string;
+  footballLeagues: string[];
+  footballFavoriteTeams: string[];
 }
 
 /** Read the current settings from VS Code configuration. */
 export function getConfig(): SportbarConfig {
   const c = vscode.workspace.getConfiguration('sportbar');
   return {
-    enabledSports: c.get<SportId[]>('enabledSports', ['cricket', 'football', 'f1']),
+    enabledSports: c.get<SportId[]>('enabledSports', ['football', 'f1']),
     refreshIntervalSeconds: c.get<number>('refreshIntervalSeconds', 45),
     idleRefreshMinutes: c.get<number>('idleRefreshMinutes', 30),
     statusBarMaxLength: c.get<number>('statusBarMaxLength', 30),
     useMockData: c.get<boolean>('useMockData', true),
     cricketApiKey: c.get<string>('cricket.apiKey', '').trim(),
     cricketFavoriteTeams: c.get<string[]>('cricket.favoriteTeams', []),
-    footballApiKey: c.get<string>('football.apiKey', '').trim(),
+    footballLeagues: c.get<string[]>('football.leagues', []),
+    footballFavoriteTeams: c.get<string[]>('football.favoriteTeams', []),
   };
 }

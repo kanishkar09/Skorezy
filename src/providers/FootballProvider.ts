@@ -1,147 +1,174 @@
 import { Match, ScoreProvider } from '../core/types';
 
 /**
- * Football scores.
+ * Football scores — keyless, works for everyone out of the box.
  *
- * Mock mode: realistic sample data.
- * Live mode: football-data.org — set sportbar.useMockData=false and provide
- *            a free API key. Docs: https://www.football-data.org/documentation
+ * Uses ESPN's free public soccer scoreboards (no API key, no signup), the
+ * football equivalent of OpenF1. Queries several major competitions and shows
+ * a live match (favourites first), else the next fixture, else the latest result.
  */
+const DEFAULT_LEAGUES = [
+  'eng.1', // Premier League
+  'esp.1', // La Liga
+  'ita.1', // Serie A
+  'ger.1', // Bundesliga
+  'fra.1', // Ligue 1
+  'uefa.champions', // Champions League
+  'fifa.world', // World Cup
+  'usa.1', // MLS
+];
+
+interface FEvent {
+  league: string;
+  state: string; // 'pre' | 'in' | 'post'
+  desc: string;
+  clock: string;
+  date: number;
+  home: { name: string; abbr: string; score: string };
+  away: { name: string; abbr: string; score: string };
+}
+
 export class FootballProvider implements ScoreProvider {
   readonly id = 'football' as const;
   readonly emoji = '⚽';
 
-  constructor(private readonly useMockData: boolean, private readonly apiKey?: string) {}
+  constructor(
+    private readonly leagues: string[] = DEFAULT_LEAGUES,
+    private readonly favoriteTeams: string[] = []
+  ) {}
 
   async fetch(): Promise<Match> {
-    if (this.apiKey) {
-      return this.live();
-    }
-    return this.useMockData ? this.mock() : this.idle();
-  }
-
-  private mock(): Match {
-    return {
-      sport: 'football',
-      state: 'live',
-      emoji: this.emoji,
-      statusBarText: 'ARS 2-1 CHE 67\'',
-      tooltip: 'Arsenal 2-1 Chelsea · 67\' · Premier League',
-      detail: {
-        sport: 'football',
-        state: 'live',
-        title: 'Premier League',
-        subtitle: "Emirates Stadium · 67'",
-        teams: [
-          { name: 'Arsenal', flag: '🔴', score: '2' },
-          { name: 'Chelsea', flag: '🔵', score: '1' },
-        ],
-        meta: [
-          { label: 'Scorers', value: 'Saka 12\', Ødegaard 44\'', highlight: true },
-          { label: 'CHE', value: 'Palmer 51\'' },
-          { label: 'Status', value: "2nd Half · 67'" },
-        ],
-        others: [
-          { left: '🔵 MCI vs LIV 🔴', right: '1 - 1 · 73\'' },
-          { left: '⚪ TOT vs MUN 🔴', right: 'KO 20:00' },
-        ],
-      },
-    };
-  }
-
-  private async live(): Promise<Match> {
     try {
-      const res = await fetch('https://api.football-data.org/v4/matches?status=LIVE', {
-        headers: { 'X-Auth-Token': this.apiKey! },
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      const lgs = this.leagues.length ? this.leagues : DEFAULT_LEAGUES;
+      const results = await Promise.allSettled(lgs.map((l) => this.league(l)));
+      const events: FEvent[] = [];
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          events.push(...r.value);
+        }
       }
-      const json: any = await res.json();
-      const m = (json.matches || [])[0];
-      if (!m) {
-        // Nothing live — fall back to the next upcoming fixture.
-        return this.upcoming();
+      if (!events.length) {
+        return this.idle();
       }
-      const home = m.homeTeam?.shortName ?? m.homeTeam?.name ?? 'Home';
-      const away = m.awayTeam?.shortName ?? m.awayTeam?.name ?? 'Away';
-      const hs = m.score?.fullTime?.home ?? 0;
-      const as = m.score?.fullTime?.away ?? 0;
-      return {
-        sport: 'football',
-        state: 'live',
-        emoji: this.emoji,
-        statusBarText: `${home} ${hs}-${as} ${away}`,
-        tooltip: `${home} ${hs}-${as} ${away} · ${m.competition?.name ?? ''}`,
-        detail: {
-          sport: 'football',
-          state: 'live',
-          title: m.competition?.name ?? 'Football',
-          subtitle: m.status,
-          teams: [
-            { name: home, score: String(hs) },
-            { name: away, score: String(as) },
-          ],
-          meta: [{ label: 'Status', value: m.status }],
-          others: [],
-        },
-      };
+
+      const live = events.filter((e) => e.state === 'in');
+      const upcoming = events.filter((e) => e.state === 'pre').sort((a, b) => a.date - b.date);
+      const recent = events.filter((e) => e.state === 'post').sort((a, b) => b.date - a.date);
+
+      const chosen =
+        this.fav(live) ??
+        live[0] ??
+        this.fav(upcoming) ??
+        upcoming[0] ??
+        this.fav(recent) ??
+        recent[0];
+
+      if (!chosen) {
+        return this.idle();
+      }
+      return this.toMatch(chosen, live);
     } catch (err: any) {
       return this.error(err?.message ?? 'fetch failed');
     }
   }
 
-  // When nothing is live, show the next scheduled fixture (next 10 days).
-  private async upcoming(): Promise<Match> {
-    try {
-      const today = new Date();
-      const to = new Date(today.getTime() + 10 * 86400000);
-      const fmt = (d: Date) => d.toISOString().slice(0, 10);
-      const url = `https://api.football-data.org/v4/matches?status=SCHEDULED&dateFrom=${fmt(today)}&dateTo=${fmt(to)}`;
-      const res = await fetch(url, { headers: { 'X-Auth-Token': this.apiKey! } });
-      if (!res.ok) {
-        return this.idle();
-      }
-      const json: any = await res.json();
-      const list = (json.matches || []).sort(
-        (a: any, b: any) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime()
-      );
-      const m = list[0];
-      if (!m) {
-        return this.idle();
-      }
-      const home = m.homeTeam?.shortName ?? m.homeTeam?.name ?? 'Home';
-      const away = m.awayTeam?.shortName ?? m.awayTeam?.name ?? 'Away';
-      const when = new Date(m.utcDate);
-      return {
-        sport: 'football',
-        state: 'upcoming',
-        emoji: this.emoji,
-        statusBarText: `${home} v ${away} ${when.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
-        tooltip: `Next: ${home} vs ${away} · ${m.competition?.name ?? ''} · ${when.toLocaleString()}`,
-        detail: {
-          sport: 'football',
-          state: 'upcoming',
-          title: m.competition?.name ?? 'Football',
-          subtitle: 'Next fixture',
-          teams: [
-            { name: home },
-            { name: away },
-          ],
-          meta: [{ label: 'Kick-off', value: when.toLocaleString(), highlight: true }],
-          others: [],
-        },
-      };
-    } catch {
-      return this.idle();
+  private async league(code: string): Promise<FEvent[]> {
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/${code}/scoreboard`
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
     }
+    const json: any = await res.json();
+    const leagueName = json.leagues?.[0]?.abbreviation ?? code;
+    return (json.events || []).map((e: any) => this.parse(e, leagueName));
+  }
+
+  private parse(e: any, league: string): FEvent {
+    const comp = e.competitions?.[0] ?? {};
+    const cs: any[] = comp.competitors ?? [];
+    const home = cs.find((c) => c.homeAway === 'home') ?? cs[0] ?? {};
+    const away = cs.find((c) => c.homeAway === 'away') ?? cs[1] ?? {};
+    return {
+      league,
+      state: e.status?.type?.state ?? 'pre',
+      desc: e.status?.type?.description ?? '',
+      clock: e.status?.displayClock ?? '',
+      date: new Date(e.date).getTime(),
+      home: {
+        name: home.team?.displayName ?? 'Home',
+        abbr: home.team?.abbreviation ?? 'HOM',
+        score: home.score ?? '',
+      },
+      away: {
+        name: away.team?.displayName ?? 'Away',
+        abbr: away.team?.abbreviation ?? 'AWY',
+        score: away.score ?? '',
+      },
+    };
+  }
+
+  private fav(list: FEvent[]): FEvent | undefined {
+    if (!this.favoriteTeams.length) {
+      return undefined;
+    }
+    const favs = this.favoriteTeams.map((f) => f.toLowerCase());
+    return list.find((e) =>
+      favs.some(
+        (f) =>
+          e.home.name.toLowerCase().includes(f) ||
+          e.away.name.toLowerCase().includes(f) ||
+          e.home.abbr.toLowerCase() === f ||
+          e.away.abbr.toLowerCase() === f
+      )
+    );
+  }
+
+  private toMatch(e: FEvent, live: FEvent[]): Match {
+    const isLive = e.state === 'in';
+    const isPre = e.state === 'pre';
+    const day = new Date(e.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const statusBarText = isLive
+      ? `${e.home.abbr} ${e.home.score}-${e.away.score} ${e.away.abbr} ${e.clock}`
+      : isPre
+        ? `${e.home.abbr} v ${e.away.abbr} ${day}`
+        : `${e.home.abbr} ${e.home.score}-${e.away.score} ${e.away.abbr} FT`;
+
+    const others = live
+      .filter((x) => x !== e)
+      .slice(0, 4)
+      .map((x) => ({
+        left: `${x.home.abbr} v ${x.away.abbr}`,
+        right: `${x.home.score}-${x.away.score} ${x.clock}`.trim(),
+      }));
+
+    const state = isLive ? 'live' : isPre ? 'upcoming' : 'idle';
+    return {
+      sport: 'football',
+      state,
+      emoji: this.emoji,
+      statusBarText,
+      tooltip: `${e.home.name} ${e.home.score}-${e.away.score} ${e.away.name} · ${e.league} · ${e.desc}`,
+      detail: {
+        sport: 'football',
+        state,
+        title: e.league,
+        subtitle: isPre ? new Date(e.date).toLocaleString() : e.desc,
+        teams: [
+          { name: e.home.name, score: e.home.score || undefined },
+          { name: e.away.name, score: e.away.score || undefined },
+        ],
+        meta: [{ label: 'Status', value: isLive ? `${e.desc} ${e.clock}`.trim() : e.desc, highlight: isLive }],
+        others,
+      },
+    };
   }
 
   private idle(): Match {
     return {
       sport: 'football', state: 'idle', emoji: this.emoji,
-      statusBarText: 'No live match', tooltip: 'No live football right now',
-      detail: { sport: 'football', state: 'idle', title: 'No live football', teams: [], meta: [] },
+      statusBarText: 'No matches', tooltip: 'No football right now',
+      detail: { sport: 'football', state: 'idle', title: 'No football right now', teams: [], meta: [] },
     };
   }
 

@@ -4,11 +4,19 @@
   "description": "Live cricket, football, and F1 scores right in your VS Code status bar.",
   "version": "0.1.0",
   "publisher": "kanishkar-k",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kanishkar-k/sportbar"
+  },
+  "bugs": {
+    "url": "https://github.com/kanishkar-k/sportbar/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "keywords": ["cricket", "football", "f1", "sports", "scores", "live"],
+  "categories": ["Other", "Visualization"],
+  "keywords": ["cricket", "football", "soccer", "f1", "formula 1", "sports", "scores", "live"],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
@@ -28,8 +36,8 @@
         "sportbar.enabledSports": {
           "type": "array",
           "items": { "type": "string", "enum": ["cricket", "football", "f1"] },
-          "default": ["cricket", "football", "f1"],
-          "description": "Which sports to show in the status bar."
+          "default": ["football", "f1"],
+          "markdownDescription": "Which sports to show. `football` and `f1` work instantly with no setup. Add `cricket` if you provide a free CricketData.org key."
         },
         "sportbar.refreshIntervalSeconds": {
           "type": "number",
@@ -62,10 +70,17 @@
           "default": [],
           "description": "Preferred teams (e.g. \"India\"). When one is playing live, it is shown first."
         },
-        "sportbar.football.apiKey": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "API token from [football-data.org](https://www.football-data.org). When set, football shows live data."
+        "sportbar.football.leagues": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "ESPN league codes to follow (e.g. `eng.1`, `esp.1`, `uefa.champions`, `usa.1`). Leave empty for a sensible default set. No API key needed."
+        },
+        "sportbar.football.favoriteTeams": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Preferred football teams (e.g. \"Arsenal\"). Shown first when playing live."
         }
       }
     }
