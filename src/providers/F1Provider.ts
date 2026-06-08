@@ -7,6 +7,7 @@ import {
   F1RaceResult,
   F1ResultRow,
 } from '../core/types';
+import { fmtDateTime } from '../util/time';
 
 /**
  * Formula 1.
@@ -83,13 +84,13 @@ export class F1Provider implements ScoreProvider {
         state: 'upcoming',
         emoji: this.emoji,
         statusBarText: `${this.short(name)} · ${countdown}`,
-        tooltip: `Next: ${name} — ${start.toLocaleString()}`,
+        tooltip: `Next: ${name} — ${fmtDateTime(start)}`,
         detail: {
           sport: 'f1',
           state: 'upcoming',
           title: name,
           subtitle: `Round ${race.round} · ${race.Circuit?.circuitName ?? ''}`,
-          teams: [{ name: 'Race start', score: start.toLocaleString() }],
+          teams: [{ name: 'Race start', score: fmtDateTime(start) }],
           meta: [
             { label: 'Circuit', value: race.Circuit?.Location?.locality ?? '—' },
             { label: 'Country', value: race.Circuit?.Location?.country ?? '—' },

@@ -1,4 +1,5 @@
 import { Match, ScoreProvider, FootballMatchSummary } from '../core/types';
+import { fmtDateTime } from '../util/time';
 
 /**
  * Football scores — keyless, works for everyone out of the box.
@@ -99,12 +100,7 @@ export class FootballProvider implements ScoreProvider {
         e.state === 'in'
           ? `${e.desc} ${e.clock}`.trim()
           : e.state === 'pre'
-            ? new Date(e.date).toLocaleString(undefined, {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })
+            ? fmtDateTime(new Date(e.date))
             : 'FT',
       home: e.home,
       away: e.away,
@@ -192,7 +188,7 @@ export class FootballProvider implements ScoreProvider {
         sport: 'football',
         state,
         title: e.league,
-        subtitle: isPre ? new Date(e.date).toLocaleString() : e.desc,
+        subtitle: isPre ? `Kick-off ${fmtDateTime(new Date(e.date))}` : e.desc,
         teams: [
           { name: e.home.name, score: e.home.score || undefined },
           { name: e.away.name, score: e.away.score || undefined },
