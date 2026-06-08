@@ -12,6 +12,10 @@ export class F1Provider implements ScoreProvider {
   readonly id = 'f1' as const;
   readonly emoji = '🏎️';
 
+  // Cache the map data to avoid OpenF1 rate limits (429s) on rapid re-renders.
+  private mapCache?: { at: number; data: TrackMapData };
+  private static readonly MAP_CACHE_MS = 25000;
+
   constructor(private readonly useMockData: boolean = false) {}
 
   async fetch(): Promise<Match> {
@@ -98,7 +102,13 @@ export class F1Provider implements ScoreProvider {
    * the latest 60s, otherwise it replays a 60s window from mid-race.
    */
   async getTrackMap(): Promise<TrackMapData> {
-    const session = await this.latestRaceSession();
+    // Serve cached map within the TTL to respect OpenF1 rate limits.
+    if (this.mapCache && Date.now() - this.mapCache.at < F1Provider.MAP_CACHE_MS) {
+      return this.mapCache.data;
+    }
+    // Find the most recent race that actually has location telemetry
+    // (the very latest race may not be ingested by OpenF1 yet).
+    const { session, loc, from, to, isLive } = await this.resolveSession();
     const key = session.session_key;
 
     const drivers: any[] = await this.json(
@@ -109,27 +119,6 @@ export class F1Provider implements ScoreProvider {
       acronym: (d.name_acronym as string) ?? String(d.driver_number),
       color: '#' + ((d.team_colour as string) || '888888'),
     }));
-
-    // Decide the time window.
-    const sessionStart = new Date(session.date_start).getTime();
-    const sessionEnd = session.date_end ? new Date(session.date_end).getTime() : sessionStart + 7200000;
-    const now = Date.now();
-    const isLive = now >= sessionStart && now <= sessionEnd;
-
-    let from: Date;
-    let to: Date;
-    if (isLive) {
-      to = new Date(now);
-      from = new Date(now - 60000);
-    } else {
-      from = new Date(sessionStart + 15 * 60000); // 15 min into the race
-      to = new Date(from.getTime() + 60000);
-    }
-
-    const loc: any[] = await this.json(
-      `https://api.openf1.org/v1/location?session_key=${key}` +
-        `&date>=${this.iso(from)}&date<=${this.iso(to)}`
-    );
 
     // Bucket into 1-second frames; last sample in each second wins.
     const bySec = new Map<number, Map<number, { x: number; y: number }>>();
@@ -165,7 +154,9 @@ export class F1Provider implements ScoreProvider {
       maxY: Math.max(...ys),
     };
 
-    return {
+    const leaderboard = await this.buildLeaderboard(key, from, to, cars);
+
+    const data: TrackMapData = {
       sessionName: `${session.country_name ?? ''} GP ${session.year ?? ''}`.trim(),
       circuit: session.circuit_short_name ?? '',
       live: isLive,
@@ -173,13 +164,108 @@ export class F1Provider implements ScoreProvider {
       frames,
       outline,
       bounds,
+      leaderboard,
     };
+    this.mapCache = { at: Date.now(), data };
+    return data;
   }
 
-  private async latestRaceSession(): Promise<any> {
+  /**
+   * Live running order + gaps + tyre compound. Each sub-call is wrapped so a
+   * single failure (or rate limit) just omits that column instead of breaking
+   * the whole map.
+   */
+  private async buildLeaderboard(
+    key: number,
+    from: Date,
+    to: Date,
+    cars: { num: number; acronym: string; color: string }[]
+  ): Promise<TrackMapData['leaderboard']> {
+    // Positions change infrequently, so look back ~30 min to capture every
+    // driver's latest standing. Gaps update constantly, so a short window is fine.
+    const posFrom = new Date(to.getTime() - 30 * 60000);
+    const intFrom = new Date(to.getTime() - 120000);
+    const [positions, intervals, stints] = await Promise.all([
+      this.safeJson(
+        `https://api.openf1.org/v1/position?session_key=${key}&date>=${this.iso(posFrom)}&date<=${this.iso(to)}`
+      ),
+      this.safeJson(
+        `https://api.openf1.org/v1/intervals?session_key=${key}&date>=${this.iso(intFrom)}&date<=${this.iso(to)}`
+      ),
+      this.safeJson(`https://api.openf1.org/v1/stints?session_key=${key}`),
+    ]);
+
+    // Latest position per driver in the window.
+    const posByDriver = this.latestByDriver(positions);
+    // Latest interval/gap per driver.
+    const intByDriver = this.latestByDriver(intervals);
+    // Latest stint (current tyre) per driver.
+    const stintByDriver = new Map<number, any>();
+    for (const s of stints) {
+      const cur = stintByDriver.get(s.driver_number);
+      if (!cur || (s.stint_number ?? 0) > (cur.stint_number ?? 0)) {
+        stintByDriver.set(s.driver_number, s);
+      }
+    }
+
+    const carByNum = new Map(cars.map((c) => [c.num, c]));
+    const rows = [...posByDriver.entries()]
+      .map(([num, p]) => {
+        const car = carByNum.get(num);
+        const pos = p.position as number;
+        const intv = intByDriver.get(num);
+        const stint = stintByDriver.get(num);
+        return {
+          pos,
+          num,
+          acronym: car?.acronym ?? String(num),
+          color: car?.color ?? '#888888',
+          gap: pos === 1 ? 'Leader' : this.fmtGap(intv?.gap_to_leader),
+          tyre: stint?.compound as string | undefined,
+          tyreAge: stint?.tyre_age_at_start as number | undefined,
+        };
+      })
+      .filter((r) => typeof r.pos === 'number')
+      .sort((a, b) => a.pos - b.pos);
+
+    return rows;
+  }
+
+  private latestByDriver(rows: any[]): Map<number, any> {
+    const map = new Map<number, any>();
+    for (const r of rows) {
+      const t = new Date(r.date).getTime();
+      const cur = map.get(r.driver_number);
+      if (!cur || t > cur.__t) {
+        map.set(r.driver_number, { ...r, __t: t });
+      }
+    }
+    return map;
+  }
+
+  private fmtGap(v: any): string {
+    if (v == null) {
+      return '—';
+    }
+    if (typeof v === 'string') {
+      return v; // e.g. "+1 LAP"
+    }
+    return '+' + Number(v).toFixed(3);
+  }
+
+  private async safeJson(url: string): Promise<any[]> {
+    try {
+      const r = await this.json(url);
+      return Array.isArray(r) ? r : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Most-recent-first list of races that have already started. */
+  private async candidateRaceSessions(): Promise<any[]> {
     const year = new Date().getFullYear();
     const now = Date.now();
-    // A race only has telemetry once it has started — ignore future fixtures.
     const started = (list: any[]) =>
       list
         .filter((s) => new Date(s.date_start).getTime() <= now)
@@ -196,7 +282,37 @@ export class F1Provider implements ScoreProvider {
     if (!past.length) {
       throw new Error('No completed F1 race found');
     }
-    return past[0];
+    return past.slice(0, 5);
+  }
+
+  /**
+   * Pick the most recent race that actually has location data. The very latest
+   * race is sometimes not yet ingested by OpenF1, so we fall back to older ones.
+   */
+  private async resolveSession(): Promise<{
+    session: any;
+    loc: any[];
+    from: Date;
+    to: Date;
+    isLive: boolean;
+  }> {
+    const candidates = await this.candidateRaceSessions();
+    for (const session of candidates) {
+      const start = new Date(session.date_start).getTime();
+      const end = session.date_end ? new Date(session.date_end).getTime() : start + 7200000;
+      const now = Date.now();
+      const isLive = now >= start && now <= end;
+      const from = isLive ? new Date(now - 60000) : new Date(start + 15 * 60000);
+      const to = isLive ? new Date(now) : new Date(from.getTime() + 60000);
+      const loc = await this.safeJson(
+        `https://api.openf1.org/v1/location?session_key=${session.session_key}` +
+          `&date>=${this.iso(from)}&date<=${this.iso(to)}`
+      );
+      if (loc.length) {
+        return { session, loc, from, to, isLive };
+      }
+    }
+    throw new Error('No F1 location data available for recent races');
   }
 
   private async json(url: string): Promise<any> {

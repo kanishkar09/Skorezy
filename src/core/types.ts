@@ -98,6 +98,16 @@ export interface TrackMapFrame {
   cars: { num: number; x: number; y: number }[];
 }
 
+export interface LeaderboardRow {
+  pos: number;
+  num: number;
+  acronym: string;
+  color: string;
+  gap: string; // "Leader" | "+1.234" | "+1 LAP"
+  tyre?: string; // SOFT | MEDIUM | HARD | INTERMEDIATE | WET
+  tyreAge?: number;
+}
+
 export interface TrackMapData {
   sessionName: string;
   circuit: string;
@@ -106,6 +116,7 @@ export interface TrackMapData {
   frames: TrackMapFrame[];
   outline: { x: number; y: number }[];
   bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  leaderboard: LeaderboardRow[];
 }
 
 /** Contract every sport implements. Add a sport = add one of these. */

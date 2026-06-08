@@ -154,9 +154,15 @@ export class DetailPanel {
   .mapwrap { display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; }
   #track { background:var(--vscode-editorWidget-background); border:1px solid var(--vscode-panel-border);
     border-radius:8px; flex:1; min-width:220px; }
-  .grid { font-size:11px; min-width:120px; }
-  .grid .pos { display:flex; align-items:center; gap:6px; padding:3px 0; }
+  .grid { font-size:11px; min-width:150px; flex:1; }
+  .grid .pos { display:flex; align-items:center; gap:6px; padding:3px 0;
+    border-bottom:1px solid var(--vscode-panel-border); }
   .grid .swatch { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .grid .pnum { width:16px; color:var(--vscode-descriptionForeground); text-align:right; }
+  .grid .acr { font-weight:600; width:34px; }
+  .grid .gap { margin-left:auto; color:var(--vscode-descriptionForeground); font-variant-numeric:tabular-nums; }
+  .grid .tyre { width:16px; height:16px; border-radius:50%; font-size:9px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; color:#000; flex-shrink:0; }
   .maptitle { font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:8px; }
   .replaybadge { display:inline-block; font-size:9px; padding:1px 6px; border-radius:8px;
     background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); margin-left:6px; }
@@ -292,10 +298,42 @@ export class DetailPanel {
       '<div class="maptitle">' + esc(mapData.sessionName) + ' · ' + esc(mapData.circuit) +
         (mapData.live ? '<span class="replaybadge" style="background:#c0392b;color:#fff">LIVE</span>'
                       : '<span class="replaybadge">REPLAY</span>') + '</div>' +
-      '<div class="mapwrap"><canvas id="track" width="300" height="260"></canvas>' +
+      '<div class="mapwrap"><canvas id="track" width="280" height="240"></canvas>' +
       '<div class="grid" id="grid"></div></div>';
+    renderLeaderboard();
     startAnim();
     if (mapData.live) { startMapTimer(); } else { stopMapTimer(); }
+  }
+
+  function tyreColor(t) {
+    switch ((t||'').toUpperCase()) {
+      case 'SOFT': return '#e0383b';
+      case 'MEDIUM': return '#e6c84f';
+      case 'HARD': return '#e8e8e8';
+      case 'INTERMEDIATE': return '#43b02a';
+      case 'WET': return '#1e6fff';
+      default: return '#888';
+    }
+  }
+
+  function renderLeaderboard() {
+    const grid = document.getElementById('grid');
+    if (!grid) return;
+    const lb = (mapData && mapData.leaderboard) || [];
+    if (!lb.length) { grid.innerHTML = '<div class="maptitle">Leaderboard unavailable</div>'; return; }
+    let g = '<div class="maptitle">Running order</div>';
+    lb.forEach(r => {
+      const tyre = r.tyre
+        ? '<span class="tyre" title="' + esc(r.tyre) + (r.tyreAge!=null?(' · '+r.tyreAge+' laps'):'') +
+          '" style="background:' + tyreColor(r.tyre) + '">' + esc(r.tyre.charAt(0)) + '</span>'
+        : '';
+      g += '<div class="pos"><span class="pnum">' + r.pos + '</span>' +
+        '<span class="swatch" style="background:' + r.color + '"></span>' +
+        '<span class="acr">' + esc(r.acronym) + '</span>' +
+        tyre +
+        '<span class="gap">' + esc(r.gap) + '</span></div>';
+    });
+    grid.innerHTML = g;
   }
 
   function startAnim() {
@@ -324,14 +362,6 @@ export class DetailPanel {
         ctx.beginPath(); ctx.fillStyle = colorOf[car.num] || '#fff';
         ctx.arc(px, py, 4, 0, 6.283); ctx.fill();
       });
-      const grid = document.getElementById('grid');
-      if (grid) {
-        let g = '<div class="maptitle">Frame ' + (frameIdx+1) + '/' + mapData.frames.length + '</div>';
-        mapData.cars.forEach(car => {
-          g += '<div class="pos"><span class="swatch" style="background:' + car.color + '"></span>' + esc(car.acronym) + '</div>';
-        });
-        grid.innerHTML = g;
-      }
       frameIdx = (frameIdx + 1) % mapData.frames.length;
     }
     draw();
