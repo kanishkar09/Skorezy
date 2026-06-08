@@ -4,8 +4,6 @@ Live **football**, **F1**, and **cricket** scores right in your status bar — w
 
 **Football and F1 work instantly — no API key, no signup.**
 
-![status bar](docs/statusbar.png)
-
 ## Features
 
 - **Status bar scores** — one compact live item per sport, auto-updating
