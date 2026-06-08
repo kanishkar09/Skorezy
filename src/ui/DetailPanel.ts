@@ -6,6 +6,7 @@ import {
   FootballMatchSummary,
   F1RaceItem,
   F1RaceResult,
+  F1Standings,
 } from '../core/types';
 
 export interface PanelLoaders {
@@ -14,6 +15,7 @@ export interface PanelLoaders {
   footballMatches?: () => Promise<FootballMatchSummary[]>;
   f1Races?: () => Promise<F1RaceItem[]>;
   f1RaceResult?: (season: string, round: string) => Promise<F1RaceResult>;
+  f1Standings?: () => Promise<F1Standings>;
 }
 
 /** Singleton webview panel showing full detail for all sports, with tabs. */
@@ -63,6 +65,8 @@ export class DetailPanel {
           await this.sendLoader(this.loaders.footballMatches, 'footballMatches');
         } else if (msg?.type === 'requestF1Races') {
           await this.sendLoader(this.loaders.f1Races, 'f1Races');
+        } else if (msg?.type === 'requestF1Standings') {
+          await this.sendLoader(this.loaders.f1Standings, 'f1Standings');
         } else if (msg?.type === 'requestF1RaceResult') {
           await this.sendLoader(
             this.loaders.f1RaceResult
@@ -382,7 +386,7 @@ export class DetailPanel {
       '<button id="f1-map" class="' + (f1View==='map'?'active':'') + '">🗺️ Track Map</button>' +
       '<button id="f1-races" class="' + (f1View==='races'?'active':'') + '">🏁 Races</button>' +
       '</div>';
-    if (f1View === 'schedule') { html += buildDetail(m.detail); }
+    if (f1View === 'schedule') { html += buildDetail(m.detail) + '<div id="standingsbody"></div>'; }
     else if (f1View === 'map') { html += '<div id="mapcontainer"></div>'; }
     else { html += '<div id="racesbody"></div>'; }
     body.innerHTML = html;
@@ -390,7 +394,46 @@ export class DetailPanel {
     document.getElementById('f1-map').onclick = () => { f1View='map'; render(); };
     document.getElementById('f1-races').onclick = () => { f1View='races'; stopAnim(); stopMapTimer(); render(); };
     if (f1View === 'map') { renderMap(); }
-    else { stopAnim(); if (f1View === 'races') { renderRaces(); } }
+    else if (f1View === 'races') { stopAnim(); renderRaces(); }
+    else { stopAnim(); ensureStandings(); }
+  }
+
+  // ---- F1 championship standings (in the Schedule tab) ----
+  let standings = null, standingsStatus = 'idle', standingsError = '', standingsView = 'drivers';
+
+  function ensureStandings() {
+    const c = document.getElementById('standingsbody');
+    if (!c) return;
+    if (standingsStatus === 'idle') { standingsStatus='loading'; vscode.postMessage({ type:'requestF1Standings' }); }
+    if (standingsStatus === 'loading') {
+      c.innerHTML = '<div class="sectitle" style="margin-top:14px">Championship standings</div><div class="empty">Loading…</div>';
+      return;
+    }
+    if (standingsStatus === 'error') { c.innerHTML = '<div class="empty">⚠ ' + esc(standingsError) + '</div>'; return; }
+    if (!standings) { c.innerHTML = ''; return; }
+    c.innerHTML = buildStandings(standings);
+    const db = document.getElementById('st-drv'), cb = document.getElementById('st-con');
+    if (db) db.onclick = () => { standingsView='drivers'; ensureStandings(); };
+    if (cb) cb.onclick = () => { standingsView='constructors'; ensureStandings(); };
+  }
+
+  function buildStandings(d) {
+    const isDrv = standingsView === 'drivers';
+    let html = '<div class="sectitle" style="margin-top:14px">Championship ' + esc(d.season) + '</div>';
+    html += '<div class="subtoggle">' +
+      '<button id="st-drv" class="' + (isDrv?'active':'') + '">Drivers</button>' +
+      '<button id="st-con" class="' + (!isDrv?'active':'') + '">Constructors</button></div>';
+    const rows = isDrv ? d.drivers : d.constructors;
+    if (!rows || !rows.length) { return html + '<div class="empty">Standings not available yet</div>'; }
+    html += '<table class="results"><tr><th class="p">P</th><th>' + (isDrv?'Driver':'Team') + '</th>' +
+      (isDrv ? '<th>Team</th>' : '') + '<th class="rt">Pts</th><th class="rt">Wins</th></tr>';
+    rows.forEach((r) => {
+      html += '<tr><td class="p">' + esc(r.pos) + '</td><td>' + esc(r.name) + '</td>' +
+        (isDrv ? ('<td>' + esc(r.team||'') + '</td>') : '') +
+        '<td class="rt">' + esc(r.points) + '</td><td class="rt">' + esc(r.wins) + '</td></tr>';
+    });
+    html += '</table>';
+    return html;
   }
 
   // ---- F1 race browser (pick an old race → see its result) ----
@@ -617,6 +660,12 @@ export class DetailPanel {
     } else if (msg.type === 'f1RaceResultError') {
       rrError = msg.message; rrStatus = 'error';
       if (f1View === 'races') renderRaces();
+    } else if (msg.type === 'f1Standings') {
+      standings = msg.data; standingsStatus = 'ready';
+      if (f1View === 'schedule') ensureStandings();
+    } else if (msg.type === 'f1StandingsError') {
+      standingsError = msg.message; standingsStatus = 'error';
+      if (f1View === 'schedule') ensureStandings();
     }
   });
   vscode.postMessage({ type: 'ready' });

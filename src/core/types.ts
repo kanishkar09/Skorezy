@@ -118,6 +118,22 @@ export interface F1RaceResult {
   rows: F1ResultRow[];
 }
 
+// ---- F1 championship standings (Jolpica) ----
+
+export interface StandingRow {
+  pos: string;
+  name: string;
+  team?: string; // constructor for a driver row
+  points: string;
+  wins: string;
+}
+
+export interface F1Standings {
+  season: string;
+  drivers: StandingRow[];
+  constructors: StandingRow[];
+}
+
 // ---- F1 live track map (OpenF1) ----
 
 export interface TrackMapCar {

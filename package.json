@@ -2,7 +2,7 @@
   "name": "sportbar",
   "displayName": "SportBar — Live Sports Scores",
   "description": "Live cricket, football, and F1 scores right in your VS Code status bar.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "kanishkar-k",
   "license": "MIT",
   "repository": {

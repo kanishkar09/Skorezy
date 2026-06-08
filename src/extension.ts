@@ -37,6 +37,7 @@ export function activate(context: vscode.ExtensionContext): void {
         f1RaceResult: f1Provider
           ? (season: string, round: string) => f1Provider!.getRaceResult(season, round)
           : undefined,
+        f1Standings: f1Provider ? () => f1Provider!.getStandings() : undefined,
       });
     }),
     vscode.commands.registerCommand('sportbar.refresh', () => manager?.refreshNow())

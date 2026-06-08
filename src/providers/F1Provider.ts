@@ -6,6 +6,8 @@ import {
   F1RaceItem,
   F1RaceResult,
   F1ResultRow,
+  F1Standings,
+  StandingRow,
 } from '../core/types';
 import { fmtDateTime } from '../util/time';
 
@@ -24,6 +26,7 @@ export class F1Provider implements ScoreProvider {
   // Cache the map data to avoid OpenF1 rate limits (429s) on rapid re-renders.
   private mapCache?: { at: number; data: TrackMapData };
   private static readonly MAP_CACHE_MS = 25000;
+  private standingsCache?: { at: number; data: F1Standings };
 
   constructor(private readonly useMockData: boolean = false) {}
 
@@ -269,6 +272,48 @@ export class F1Provider implements ScoreProvider {
     } catch {
       return [];
     }
+  }
+
+  /** Driver + constructor championship standings (cached 10 min). */
+  async getStandings(): Promise<F1Standings> {
+    if (this.standingsCache && Date.now() - this.standingsCache.at < 600000) {
+      return this.standingsCache.data;
+    }
+    const year = new Date().getFullYear();
+    const tryYear = async (y: number) => {
+      const [d, c] = await Promise.all([
+        this.json(`https://api.jolpi.ca/ergast/f1/${y}/driverStandings.json`),
+        this.json(`https://api.jolpi.ca/ergast/f1/${y}/constructorStandings.json`),
+      ]);
+      return {
+        season: String(y),
+        dl: d?.MRData?.StandingsTable?.StandingsLists?.[0],
+        cl: c?.MRData?.StandingsTable?.StandingsLists?.[0],
+      };
+    };
+
+    let r = await tryYear(year);
+    if (!r.dl) {
+      r = await tryYear(year - 1);
+    }
+
+    const drivers: StandingRow[] = (r.dl?.DriverStandings ?? []).map((s: any) => ({
+      pos: s.position,
+      name: `${s.Driver?.givenName ?? ''} ${s.Driver?.familyName ?? ''}`.trim(),
+      team: s.Constructors?.[s.Constructors.length - 1]?.name ?? '',
+      points: s.points,
+      wins: s.wins,
+    }));
+    const constructors: StandingRow[] = (r.cl?.ConstructorStandings ?? []).map((s: any) => ({
+      pos: s.position,
+      name: s.Constructor?.name ?? '',
+      points: s.points,
+      wins: s.wins,
+    }));
+
+    const data: F1Standings = { season: r.season, drivers, constructors };
+    this.standingsCache = { at: Date.now(), data };
+    return data;
   }
 
   /** Past races (this season, plus last season if early) for the race browser. */
