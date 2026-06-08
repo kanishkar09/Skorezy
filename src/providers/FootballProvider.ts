@@ -1,4 +1,4 @@
-import { Match, ScoreProvider } from '../core/types';
+import { Match, ScoreProvider, FootballMatchSummary } from '../core/types';
 
 /**
  * Football scores — keyless, works for everyone out of the box.
@@ -70,6 +70,45 @@ export class FootballProvider implements ScoreProvider {
     } catch (err: any) {
       return this.error(err?.message ?? 'fetch failed');
     }
+  }
+
+  /** All matches across followed leagues (live first), for the match browser. */
+  async getMatches(): Promise<FootballMatchSummary[]> {
+    const lgs = this.leagues.length ? this.leagues : DEFAULT_LEAGUES;
+    const results = await Promise.allSettled(lgs.map((l) => this.league(l)));
+    const events: FEvent[] = [];
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        events.push(...r.value);
+      }
+    }
+    const rank = (s: string) => (s === 'in' ? 0 : s === 'pre' ? 1 : 2);
+    events.sort((a, b) => {
+      const r = rank(a.state) - rank(b.state);
+      if (r !== 0) {
+        return r;
+      }
+      // upcoming: soonest first; finished: most recent first
+      return a.state === 'post' ? b.date - a.date : a.date - b.date;
+    });
+
+    return events.slice(0, 40).map((e) => ({
+      league: e.league,
+      state: e.state as 'pre' | 'in' | 'post',
+      statusText:
+        e.state === 'in'
+          ? `${e.desc} ${e.clock}`.trim()
+          : e.state === 'pre'
+            ? new Date(e.date).toLocaleString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : 'FT',
+      home: e.home,
+      away: e.away,
+    }));
   }
 
   private async league(code: string): Promise<FEvent[]> {

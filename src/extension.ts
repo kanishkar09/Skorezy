@@ -12,6 +12,7 @@ let manager: ScoreManager | undefined;
 let statusBar: StatusBar | undefined;
 let f1Provider: F1Provider | undefined;
 let cricketProvider: CricketProvider | undefined;
+let footballProvider: FootballProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   bootstrap(context);
@@ -31,6 +32,11 @@ export function activate(context: vscode.ExtensionContext): void {
       DetailPanel.show(manager?.matches ?? [], {
         f1Map: f1Provider ? () => f1Provider!.getTrackMap() : undefined,
         cricket: cricketProvider ? () => cricketProvider!.getScorecard() : undefined,
+        footballMatches: footballProvider ? () => footballProvider!.getMatches() : undefined,
+        f1Races: f1Provider ? () => f1Provider!.getRaces() : undefined,
+        f1RaceResult: f1Provider
+          ? (season: string, round: string) => f1Provider!.getRaceResult(season, round)
+          : undefined,
       });
     }),
     vscode.commands.registerCommand('sportbar.refresh', () => manager?.refreshNow())
@@ -53,6 +59,7 @@ function bootstrap(context: vscode.ExtensionContext): void {
 
   f1Provider = providers.find((p) => p.id === 'f1') as F1Provider | undefined;
   cricketProvider = providers.find((p) => p.id === 'cricket') as CricketProvider | undefined;
+  footballProvider = providers.find((p) => p.id === 'football') as FootballProvider | undefined;
 
   statusBar = new StatusBar(
     providers.map((p) => p.id),
@@ -75,6 +82,7 @@ function teardown(): void {
   statusBar = undefined;
   f1Provider = undefined;
   cricketProvider = undefined;
+  footballProvider = undefined;
 }
 
 export function deactivate(): void {

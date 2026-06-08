@@ -86,6 +86,38 @@ export interface CricketScorecard {
   innings: InningsCard[];
 }
 
+// ---- Football match browser (ESPN) ----
+
+export interface FootballMatchSummary {
+  league: string;
+  state: 'pre' | 'in' | 'post';
+  statusText: string; // clock for live, kickoff for upcoming, "FT" for done
+  home: { name: string; abbr: string; score: string };
+  away: { name: string; abbr: string; score: string };
+}
+
+// ---- F1 race browser (Jolpica) ----
+
+export interface F1RaceItem {
+  season: string;
+  round: string;
+  name: string;
+  dateLabel: string;
+}
+
+export interface F1ResultRow {
+  pos: string;
+  driver: string;
+  team: string;
+  result: string; // finish time, "+1 Lap", or status (DNF etc.)
+}
+
+export interface F1RaceResult {
+  name: string;
+  dateLabel: string;
+  rows: F1ResultRow[];
+}
+
 // ---- F1 live track map (OpenF1) ----
 
 export interface TrackMapCar {

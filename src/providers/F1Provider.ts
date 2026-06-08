@@ -1,4 +1,12 @@
-import { Match, ScoreProvider, TrackMapData, TrackMapFrame } from '../core/types';
+import {
+  Match,
+  ScoreProvider,
+  TrackMapData,
+  TrackMapFrame,
+  F1RaceItem,
+  F1RaceResult,
+  F1ResultRow,
+} from '../core/types';
 
 /**
  * Formula 1.
@@ -260,6 +268,62 @@ export class F1Provider implements ScoreProvider {
     } catch {
       return [];
     }
+  }
+
+  /** Past races (this season, plus last season if early) for the race browser. */
+  async getRaces(): Promise<F1RaceItem[]> {
+    const year = new Date().getFullYear();
+    const now = Date.now();
+    const fetchYear = async (y: number): Promise<F1RaceItem[]> => {
+      const json = await this.json(`https://api.jolpi.ca/ergast/f1/${y}.json`);
+      const races: any[] = json?.MRData?.RaceTable?.Races ?? [];
+      return races
+        .filter((r) => new Date(`${r.date}T${r.time ?? '00:00:00Z'}`).getTime() <= now)
+        .map((r) => ({
+          season: r.season,
+          round: r.round,
+          name: r.raceName,
+          dateLabel: new Date(r.date).toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          }),
+        }))
+        .reverse(); // most recent first
+    };
+
+    let list = await fetchYear(year);
+    if (list.length < 3) {
+      const prev = await fetchYear(year - 1);
+      list = [...list, ...prev];
+    }
+    return list;
+  }
+
+  /** Full classified result of a chosen race. */
+  async getRaceResult(season: string, round: string): Promise<F1RaceResult> {
+    const json = await this.json(
+      `https://api.jolpi.ca/ergast/f1/${season}/${round}/results.json`
+    );
+    const race = json?.MRData?.RaceTable?.Races?.[0];
+    if (!race) {
+      throw new Error('No result available for that race');
+    }
+    const rows: F1ResultRow[] = (race.Results ?? []).map((r: any) => ({
+      pos: r.positionText ?? r.position,
+      driver: `${r.Driver?.givenName ?? ''} ${r.Driver?.familyName ?? ''}`.trim(),
+      team: r.Constructor?.name ?? '',
+      result: r.Time?.time ?? r.status ?? '',
+    }));
+    return {
+      name: `${race.raceName} ${race.season}`,
+      dateLabel: new Date(race.date).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }),
+      rows,
+    };
   }
 
   /** Most-recent-first list of races that have already started. */

@@ -1,9 +1,19 @@
 import * as vscode from 'vscode';
-import { Match, TrackMapData, CricketScorecard } from '../core/types';
+import {
+  Match,
+  TrackMapData,
+  CricketScorecard,
+  FootballMatchSummary,
+  F1RaceItem,
+  F1RaceResult,
+} from '../core/types';
 
 export interface PanelLoaders {
   f1Map?: () => Promise<TrackMapData>;
   cricket?: () => Promise<CricketScorecard>;
+  footballMatches?: () => Promise<FootballMatchSummary[]>;
+  f1Races?: () => Promise<F1RaceItem[]>;
+  f1RaceResult?: (season: string, round: string) => Promise<F1RaceResult>;
 }
 
 /** Singleton webview panel showing full detail for all sports, with tabs. */
@@ -49,11 +59,39 @@ export class DetailPanel {
           await this.sendMap();
         } else if (msg?.type === 'requestCricket') {
           await this.sendCricket();
+        } else if (msg?.type === 'requestFootballMatches') {
+          await this.sendLoader(this.loaders.footballMatches, 'footballMatches');
+        } else if (msg?.type === 'requestF1Races') {
+          await this.sendLoader(this.loaders.f1Races, 'f1Races');
+        } else if (msg?.type === 'requestF1RaceResult') {
+          await this.sendLoader(
+            this.loaders.f1RaceResult
+              ? () => this.loaders.f1RaceResult!(msg.season, msg.round)
+              : undefined,
+            'f1RaceResult'
+          );
         }
       },
       null,
       this.disposables
     );
+  }
+
+  /** Generic loader → posts `{type}` with data, or `{type}Error` on failure. */
+  private async sendLoader(loader: (() => Promise<any>) | undefined, type: string): Promise<void> {
+    if (!loader) {
+      this.panel.webview.postMessage({ type: `${type}Error`, message: 'Not available' });
+      return;
+    }
+    try {
+      const data = await loader();
+      this.panel.webview.postMessage({ type, data });
+    } catch (err: any) {
+      this.panel.webview.postMessage({
+        type: `${type}Error`,
+        message: err?.message ?? 'Failed to load',
+      });
+    }
   }
 
   private async sendMap(): Promise<void> {
@@ -181,6 +219,20 @@ export class DetailPanel {
   .refreshbtn { float:right; font-size:11px; cursor:pointer; padding:2px 8px; border-radius:5px;
     border:1px solid var(--vscode-panel-border); background:var(--vscode-editorWidget-background);
     color:var(--vscode-foreground); }
+  /* Clickable lists (match browser / race browser) */
+  .listrow { display:flex; align-items:center; gap:8px; padding:7px 8px; cursor:pointer;
+    border-bottom:1px solid var(--vscode-panel-border); border-radius:4px; }
+  .listrow:hover { background:var(--vscode-list-hoverBackground); }
+  .listrow .lg { font-size:9px; color:var(--vscode-descriptionForeground); width:46px; flex-shrink:0; }
+  .listrow .mt { flex:1; }
+  .listrow .st { font-size:10px; color:var(--vscode-descriptionForeground); text-align:right; }
+  .livedot { width:7px; height:7px; border-radius:50%; background:#c0392b; display:inline-block; margin-right:3px; }
+  .backbtn { cursor:pointer; font-size:12px; color:var(--vscode-textLink-foreground);
+    margin-bottom:10px; display:inline-block; }
+  table.results { width:100%; border-collapse:collapse; font-size:11px; }
+  table.results td, table.results th { padding:4px 5px; border-bottom:1px solid var(--vscode-panel-border); text-align:left; }
+  table.results td.p { width:26px; text-align:right; color:var(--vscode-descriptionForeground); }
+  table.results td.rt { text-align:right; color:var(--vscode-descriptionForeground); }
 </style>
 </head>
 <body>
@@ -213,7 +265,56 @@ export class DetailPanel {
     stopAnim(); stopCricketTimer(); stopMapTimer();
     if (m.sport === 'f1') { renderF1(m); return; }
     if (m.sport === 'cricket') { renderCricket(m); return; }
+    if (m.sport === 'football') { renderFootball(m); return; }
     body.innerHTML = buildDetail(m.detail);
+  }
+
+  // ---- Football: Featured match + All Matches browser ----
+  let fbView = 'featured'; // featured | all
+  let fbMatches = null, fbStatus = 'idle', fbError = '', fbSelected = null;
+
+  function renderFootball(m) {
+    const body = document.getElementById('body');
+    body.innerHTML = '<div class="subtoggle">' +
+      '<button id="fb-feat" class="' + (fbView==='featured'?'active':'') + '">⭐ Featured</button>' +
+      '<button id="fb-all" class="' + (fbView==='all'?'active':'') + '">📋 All Matches</button>' +
+      '</div><div id="fbbody"></div>';
+    document.getElementById('fb-feat').onclick = () => { fbView='featured'; fbSelected=null; render(); };
+    document.getElementById('fb-all').onclick = () => { fbView='all'; render(); };
+    const fb = document.getElementById('fbbody');
+    if (fbView === 'featured') { fb.innerHTML = buildDetail(m.detail); return; }
+    if (fbSelected) {
+      fb.innerHTML = '<span class="backbtn" id="fb-back">← All matches</span>' + fbMatchDetail(fbSelected);
+      document.getElementById('fb-back').onclick = () => { fbSelected=null; render(); };
+      return;
+    }
+    if (fbStatus === 'idle') { fbStatus='loading'; vscode.postMessage({ type:'requestFootballMatches' }); }
+    if (fbStatus === 'loading') { fb.innerHTML = '<div class="empty">Loading matches…</div>'; return; }
+    if (fbStatus === 'error') { fb.innerHTML = '<div class="empty">⚠ ' + esc(fbError) + '</div>'; return; }
+    if (!fbMatches || !fbMatches.length) { fb.innerHTML = '<div class="empty">No matches found</div>'; return; }
+    let html = '';
+    fbMatches.forEach((e, i) => {
+      const live = e.state === 'in' ? '<span class="livedot"></span>' : '';
+      const score = (e.home.score || e.away.score) ? (e.home.score + '-' + e.away.score) : 'v';
+      html += '<div class="listrow" data-i="' + i + '">' +
+        '<span class="lg">' + esc(e.league) + '</span>' +
+        '<span class="mt">' + live + esc(e.home.abbr) + ' ' + score + ' ' + esc(e.away.abbr) + '</span>' +
+        '<span class="st">' + esc(e.statusText) + '</span></div>';
+    });
+    fb.innerHTML = html;
+    fb.querySelectorAll('.listrow').forEach((el) => {
+      el.onclick = () => { fbSelected = fbMatches[+el.getAttribute('data-i')]; render(); };
+    });
+  }
+
+  function fbMatchDetail(e) {
+    const state = e.state === 'in' ? 'live' : e.state === 'pre' ? 'upcoming' : 'idle';
+    let html = '<div class="card">' + badge(state) +
+      '<div class="sub">' + esc(e.league) + ' · ' + esc(e.statusText) + '</div>' +
+      '<div class="team"><span>' + esc(e.home.name) + '</span><span class="score">' + esc(e.home.score||'') + '</span></div>' +
+      '<div class="team"><span>' + esc(e.away.name) + '</span><span class="score">' + esc(e.away.score||'') + '</span></div>' +
+      '</div>';
+    return html;
   }
 
   // Auto-refresh timers (paused when the panel is hidden).
@@ -279,12 +380,61 @@ export class DetailPanel {
     let html = '<div class="subtoggle">' +
       '<button id="f1-sched" class="' + (f1View==='schedule'?'active':'') + '">📅 Schedule</button>' +
       '<button id="f1-map" class="' + (f1View==='map'?'active':'') + '">🗺️ Track Map</button>' +
+      '<button id="f1-races" class="' + (f1View==='races'?'active':'') + '">🏁 Races</button>' +
       '</div>';
-    html += (f1View === 'schedule') ? buildDetail(m.detail) : '<div id="mapcontainer"></div>';
+    if (f1View === 'schedule') { html += buildDetail(m.detail); }
+    else if (f1View === 'map') { html += '<div id="mapcontainer"></div>'; }
+    else { html += '<div id="racesbody"></div>'; }
     body.innerHTML = html;
-    document.getElementById('f1-sched').onclick = () => { f1View='schedule'; stopAnim(); render(); };
+    document.getElementById('f1-sched').onclick = () => { f1View='schedule'; stopAnim(); stopMapTimer(); render(); };
     document.getElementById('f1-map').onclick = () => { f1View='map'; render(); };
-    if (f1View === 'map') { renderMap(); } else { stopAnim(); }
+    document.getElementById('f1-races').onclick = () => { f1View='races'; stopAnim(); stopMapTimer(); render(); };
+    if (f1View === 'map') { renderMap(); }
+    else { stopAnim(); if (f1View === 'races') { renderRaces(); } }
+  }
+
+  // ---- F1 race browser (pick an old race → see its result) ----
+  let f1Races = null, racesStatus = 'idle', racesError = '';
+  let raceResult = null, rrStatus = 'idle', rrError = '', rrSelected = null;
+
+  function renderRaces() {
+    const c = document.getElementById('racesbody');
+    if (!c) return;
+    if (rrSelected) {
+      c.innerHTML = '<span class="backbtn" id="rr-back">← All races</span><div id="rrbody"></div>';
+      document.getElementById('rr-back').onclick = () => { rrSelected=null; raceResult=null; rrStatus='idle'; render(); };
+      const rb = document.getElementById('rrbody');
+      if (rrStatus === 'idle') { rrStatus='loading'; vscode.postMessage({ type:'requestF1RaceResult', season:rrSelected.season, round:rrSelected.round }); }
+      if (rrStatus === 'loading') { rb.innerHTML = '<div class="empty">Loading result…</div>'; return; }
+      if (rrStatus === 'error') { rb.innerHTML = '<div class="empty">⚠ ' + esc(rrError) + '</div>'; return; }
+      if (!raceResult) { rb.innerHTML = '<div class="empty">No result</div>'; return; }
+      rb.innerHTML = buildRaceResult(raceResult);
+      return;
+    }
+    if (racesStatus === 'idle') { racesStatus='loading'; vscode.postMessage({ type:'requestF1Races' }); }
+    if (racesStatus === 'loading') { c.innerHTML = '<div class="empty">Loading races…</div>'; return; }
+    if (racesStatus === 'error') { c.innerHTML = '<div class="empty">⚠ ' + esc(racesError) + '</div>'; return; }
+    if (!f1Races || !f1Races.length) { c.innerHTML = '<div class="empty">No races</div>'; return; }
+    let html = '<div class="maptitle">Select a race to see its result</div>';
+    f1Races.forEach((r, i) => {
+      html += '<div class="listrow" data-i="' + i + '"><span class="mt">' + esc(r.name) +
+        '</span><span class="st">' + esc(r.dateLabel) + '</span></div>';
+    });
+    c.innerHTML = html;
+    c.querySelectorAll('.listrow').forEach((el) => {
+      el.onclick = () => { rrSelected = f1Races[+el.getAttribute('data-i')]; rrStatus='idle'; render(); };
+    });
+  }
+
+  function buildRaceResult(d) {
+    let html = '<div class="sc-inning">' + esc(d.name) + '</div><div class="venue">📅 ' + esc(d.dateLabel) + '</div>';
+    html += '<table class="results"><tr><th class="p">P</th><th>Driver</th><th>Team</th><th class="rt">Result</th></tr>';
+    d.rows.forEach((r) => {
+      html += '<tr><td class="p">' + esc(r.pos) + '</td><td>' + esc(r.driver) + '</td><td>' +
+        esc(r.team) + '</td><td class="rt">' + esc(r.result) + '</td></tr>';
+    });
+    html += '</table>';
+    return html;
   }
 
   function renderMap() {
@@ -449,6 +599,24 @@ export class DetailPanel {
     } else if (msg.type === 'cricketError') {
       cricketError = msg.message; cricketStatus = 'error';
       if (matches[active] && matches[active].sport === 'cricket') ensureCricket();
+    } else if (msg.type === 'footballMatches') {
+      fbMatches = msg.data; fbStatus = 'ready';
+      if (matches[active] && matches[active].sport === 'football') render();
+    } else if (msg.type === 'footballMatchesError') {
+      fbError = msg.message; fbStatus = 'error';
+      if (matches[active] && matches[active].sport === 'football') render();
+    } else if (msg.type === 'f1Races') {
+      f1Races = msg.data; racesStatus = 'ready';
+      if (f1View === 'races') renderRaces();
+    } else if (msg.type === 'f1RacesError') {
+      racesError = msg.message; racesStatus = 'error';
+      if (f1View === 'races') renderRaces();
+    } else if (msg.type === 'f1RaceResult') {
+      raceResult = msg.data; rrStatus = 'ready';
+      if (f1View === 'races') renderRaces();
+    } else if (msg.type === 'f1RaceResultError') {
+      rrError = msg.message; rrStatus = 'error';
+      if (f1View === 'races') renderRaces();
     }
   });
   vscode.postMessage({ type: 'ready' });
