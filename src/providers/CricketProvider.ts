@@ -11,7 +11,7 @@ import {
  * Cricket scores.
  *
  * Mock mode: returns realistic sample data so the extension works instantly.
- * Live mode: CricketData.org (cricapi) — set sportbar.useMockData=false and
+ * Live mode: CricketData.org (cricapi) — set skorezy.useMockData=false and
  *            provide an API key. Free tier ~100 requests/day.
  *            Docs: https://cricketdata.org
  */

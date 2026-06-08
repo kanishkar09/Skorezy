@@ -34,8 +34,8 @@ export class DetailPanel {
       return;
     }
     const panel = vscode.window.createWebviewPanel(
-      'sportbar.live',
-      'SportBar: Live',
+      'skorezy.live',
+      'Skorezy: Live',
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true }
     );

@@ -14,3 +14,4 @@ node_modules/**
 # Misc
 _*.js
 *.vsix
+icon.svg

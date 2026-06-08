@@ -15,7 +15,7 @@ export interface SportbarConfig {
 
 /** Read the current settings from VS Code configuration. */
 export function getConfig(): SportbarConfig {
-  const c = vscode.workspace.getConfiguration('sportbar');
+  const c = vscode.workspace.getConfiguration('skorezy');
   return {
     enabledSports: c.get<SportId[]>('enabledSports', ['football', 'f1']),
     refreshIntervalSeconds: c.get<number>('refreshIntervalSeconds', 45),

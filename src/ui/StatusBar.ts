@@ -10,11 +10,11 @@ export class StatusBar implements vscode.Disposable {
     let priority = 100;
     for (const sport of sports) {
       const item = vscode.window.createStatusBarItem(
-        `sportbar.${sport}`,
+        `skorezy.${sport}`,
         vscode.StatusBarAlignment.Left,
         priority--
       );
-      item.command = 'sportbar.showPanel';
+      item.command = 'skorezy.showPanel';
       item.text = '$(sync~spin)';
       item.show();
       this.items.set(sport, item);

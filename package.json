@@ -1,84 +1,119 @@
 {
-  "name": "sportbar",
-  "displayName": "SportBar — Live Sports Scores",
-  "description": "Live cricket, football, and F1 scores right in your VS Code status bar.",
+  "name": "skorezy",
+  "displayName": "Skorezy — Live Sports Scores",
+  "description": "Live football, F1, and cricket scores in your VS Code status bar — with an F1 track map, standings, and match browser. Keyless, zero setup.",
   "version": "0.1.5",
   "publisher": "kanishkar-k",
+  "author": {
+    "name": "Kanishkar Kumar"
+  },
+  "icon": "icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kanishkar-k/sportbar"
+    "url": "https://github.com/kanishkar-k/skorezy"
   },
   "bugs": {
-    "url": "https://github.com/kanishkar-k/sportbar/issues"
+    "url": "https://github.com/kanishkar-k/skorezy/issues"
   },
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other", "Visualization"],
-  "keywords": ["cricket", "football", "soccer", "f1", "formula 1", "sports", "scores", "live"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "skorezy",
+    "cricket",
+    "football",
+    "soccer",
+    "f1",
+    "formula 1",
+    "sports",
+    "scores",
+    "live"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "sportbar.showPanel",
-        "title": "SportBar: Show Live Scores"
+        "command": "skorezy.showPanel",
+        "title": "Skorezy:Show Live Scores"
       },
       {
-        "command": "sportbar.refresh",
-        "title": "SportBar: Refresh Now"
+        "command": "skorezy.refresh",
+        "title": "Skorezy:Refresh Now"
       }
     ],
     "configuration": {
-      "title": "SportBar",
+      "title": "Skorezy",
       "properties": {
-        "sportbar.enabledSports": {
+        "skorezy.enabledSports": {
           "type": "array",
-          "items": { "type": "string", "enum": ["cricket", "football", "f1"] },
-          "default": ["football", "f1"],
+          "items": {
+            "type": "string",
+            "enum": [
+              "cricket",
+              "football",
+              "f1"
+            ]
+          },
+          "default": [
+            "football",
+            "f1"
+          ],
           "markdownDescription": "Which sports to show. `football` and `f1` work instantly with no setup. Add `cricket` if you provide a free CricketData.org key."
         },
-        "sportbar.refreshIntervalSeconds": {
+        "skorezy.refreshIntervalSeconds": {
           "type": "number",
           "default": 45,
           "description": "How often to refresh while a match is live (seconds)."
         },
-        "sportbar.idleRefreshMinutes": {
+        "skorezy.idleRefreshMinutes": {
           "type": "number",
           "default": 30,
           "description": "How often to refresh when nothing is live (minutes)."
         },
-        "sportbar.statusBarMaxLength": {
+        "skorezy.statusBarMaxLength": {
           "type": "number",
           "default": 30,
           "description": "Max characters per status bar item before truncation."
         },
-        "sportbar.useMockData": {
+        "skorezy.useMockData": {
           "type": "boolean",
           "default": true,
           "description": "Use built-in sample data when a sport has no API key. A sport with a key always shows live data."
         },
-        "sportbar.cricket.apiKey": {
+        "skorezy.cricket.apiKey": {
           "type": "string",
           "default": "",
           "markdownDescription": "API key from [CricketData.org](https://cricketdata.org). When set, cricket shows live data."
         },
-        "sportbar.cricket.favoriteTeams": {
+        "skorezy.cricket.favoriteTeams": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Preferred teams (e.g. \"India\"). When one is playing live, it is shown first."
         },
-        "sportbar.football.leagues": {
+        "skorezy.football.leagues": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "markdownDescription": "ESPN league codes to follow (e.g. `eng.1`, `esp.1`, `uefa.champions`, `usa.1`). Leave empty for a sensible default set. No API key needed."
         },
-        "sportbar.football.favoriteTeams": {
+        "skorezy.football.favoriteTeams": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Preferred football teams (e.g. \"Arsenal\"). Shown first when playing live."
         }
@@ -93,6 +128,7 @@
   "devDependencies": {
     "@types/node": "^20.x",
     "@types/vscode": "^1.85.0",
+    "sharp": "^0.34.5",
     "typescript": "^5.4.0"
   }
 }

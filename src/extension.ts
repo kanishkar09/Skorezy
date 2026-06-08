@@ -20,7 +20,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Rebuild when settings change.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('sportbar')) {
+      if (e.affectsConfiguration('skorezy')) {
         teardown();
         bootstrap(context);
       }
@@ -28,7 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sportbar.showPanel', () => {
+    vscode.commands.registerCommand('skorezy.showPanel', () => {
       DetailPanel.show(manager?.matches ?? [], {
         f1Map: f1Provider ? () => f1Provider!.getTrackMap() : undefined,
         cricket: cricketProvider ? () => cricketProvider!.getScorecard() : undefined,
@@ -40,7 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
         f1Standings: f1Provider ? () => f1Provider!.getStandings() : undefined,
       });
     }),
-    vscode.commands.registerCommand('sportbar.refresh', () => manager?.refreshNow())
+    vscode.commands.registerCommand('skorezy.refresh', () => manager?.refreshNow())
   );
 }
 
