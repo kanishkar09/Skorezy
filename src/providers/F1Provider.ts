@@ -12,13 +12,16 @@ export class F1Provider implements ScoreProvider {
   readonly id = 'f1' as const;
   readonly emoji = '🏎️';
 
-  constructor(private readonly useMockData: boolean) {}
+  constructor(private readonly useMockData: boolean = false) {}
 
   async fetch(): Promise<Match> {
-    if (this.useMockData) {
+    // F1 is keyless — always fetch live. Mock is only a last-resort fallback
+    // if the live call fails (e.g. no internet).
+    try {
+      return await this.live();
+    } catch {
       return this.mock();
     }
-    return this.live();
   }
 
   private mock(): Match {
@@ -84,7 +87,8 @@ export class F1Provider implements ScoreProvider {
         },
       };
     } catch (err: any) {
-      return this.error(err?.message ?? 'fetch failed');
+      // Let fetch() decide the fallback (mock when offline).
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 
