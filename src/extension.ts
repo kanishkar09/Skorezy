@@ -4,6 +4,7 @@ import { ScoreProvider } from './core/types';
 import { ScoreManager } from './core/ScoreManager';
 import { StatusBar } from './ui/StatusBar';
 import { DetailPanel } from './ui/DetailPanel';
+import { ScoresTree } from './ui/ScoresTree';
 import { CricketProvider } from './providers/CricketProvider';
 import { FootballProvider } from './providers/FootballProvider';
 import { F1Provider } from './providers/F1Provider';
@@ -13,8 +14,14 @@ let statusBar: StatusBar | undefined;
 let f1Provider: F1Provider | undefined;
 let cricketProvider: CricketProvider | undefined;
 let footballProvider: FootballProvider | undefined;
+let scoresTree: ScoresTree | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  scoresTree = new ScoresTree();
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('skorezy.scores', scoresTree)
+  );
+
   bootstrap(context);
 
   // Rebuild when settings change.
@@ -71,6 +78,7 @@ function bootstrap(context: vscode.ExtensionContext): void {
     liveSeconds: cfg.refreshIntervalSeconds,
     idleMinutes: cfg.idleRefreshMinutes,
   });
+  manager.onUpdate = (matches) => scoresTree?.refresh(matches);
 
   context.subscriptions.push(statusBar, manager);
   manager.start();

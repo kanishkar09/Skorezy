@@ -17,6 +17,9 @@ export class ScoreManager implements vscode.Disposable {
   private timer: NodeJS.Timeout | undefined;
   private disposed = false;
 
+  /** Called after every poll with the latest matches (used to refresh the tree). */
+  onUpdate?: (matches: Match[]) => void;
+
   constructor(
     private readonly providers: ScoreProvider[],
     private readonly statusBar: StatusBar,
@@ -54,6 +57,7 @@ export class ScoreManager implements vscode.Disposable {
       this.statusBar.update(m);
     }
     DetailPanel.update(this.latest);
+    this.onUpdate?.(this.latest);
 
     this.schedule();
   }
