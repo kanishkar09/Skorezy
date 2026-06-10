@@ -15,3 +15,4 @@ node_modules/**
 _*.js
 *.vsix
 icon.svg
+extension.vsixmanifest
