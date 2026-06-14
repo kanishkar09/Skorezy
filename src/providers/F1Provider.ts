@@ -12,6 +12,16 @@ import {
 } from '../core/types';
 import { fmtDateTime } from '../util/time';
 
+interface ScheduleRace {
+  name: string;
+  round: string;
+  circuit: string;
+  locality: string;
+  country: string;
+  start: number; // ms epoch
+  end: number; // ms epoch (actual race end from OpenF1, or start + ~2.5h)
+}
+
 /**
  * Formula 1.
  *
@@ -29,6 +39,7 @@ export class F1Provider implements ScoreProvider {
   private static readonly MAP_CACHE_MS = 25000;
   private standingsCache?: { at: number; data: F1Standings };
   private rcCache?: { at: number; data: RaceControlMessage[] };
+  private scheduleCache?: { at: number; races: ScheduleRace[] };
 
   constructor(private readonly useMockData: boolean = false) {}
 
@@ -72,43 +83,70 @@ export class F1Provider implements ScoreProvider {
 
   private async live(): Promise<Match> {
     try {
-      // Use the FULL season schedule (not /next) so we can tell whether a race
-      // is upcoming, live right now, or finished — based on its actual start time.
-      const json: any = await this.json('https://api.jolpi.ca/ergast/f1/current.json');
-      const races: any[] = json?.MRData?.RaceTable?.Races ?? [];
+      const races = await this.loadSchedule();
       if (!races.length) {
         return this.idle();
       }
       const now = Date.now();
-      const RACE_WINDOW_MS = 3.5 * 60 * 60 * 1000; // treat ~3.5h around start as "live"
-      const withStart = races.map((r) => ({
-        race: r,
-        start: new Date(`${r.date}T${r.time ?? '00:00:00Z'}`).getTime(),
-      }));
-
-      const liveRace = withStart.find((x) => now >= x.start && now <= x.start + RACE_WINDOW_MS);
-      const nextRace = withStart
-        .filter((x) => x.start > now)
-        .sort((a, b) => a.start - b.start)[0];
+      // Live = between the actual start and the actual end (from OpenF1).
+      const liveRace = races.find((r) => now >= r.start && now <= r.end);
+      const nextRace = races.filter((r) => r.start > now).sort((a, b) => a.start - b.start)[0];
 
       if (liveRace) {
-        return this.raceMatch(liveRace.race, new Date(liveRace.start), 'live');
+        return this.raceMatch(liveRace, 'live');
       }
       if (nextRace) {
-        return this.raceMatch(nextRace.race, new Date(nextRace.start), 'upcoming');
+        return this.raceMatch(nextRace, 'upcoming');
       }
-      // Season finished — show the final race of the year.
-      const last = withStart[withStart.length - 1];
-      return this.raceMatch(last.race, new Date(last.start), 'idle');
+      return this.raceMatch(races[races.length - 1], 'idle');
     } catch (err: any) {
       // Let fetch() decide the fallback (mock when offline).
       throw err instanceof Error ? err : new Error(String(err));
     }
   }
 
-  private raceMatch(race: any, start: Date, state: 'upcoming' | 'live' | 'idle'): Match {
-    const name = race.raceName as string;
-    const round = race.Circuit?.circuitName ?? '';
+  /**
+   * Merge Jolpica (nice race names + full schedule) with OpenF1 (accurate race
+   * end times) so we can tell upcoming / live / finished precisely. Cached 10m.
+   */
+  private async loadSchedule(): Promise<ScheduleRace[]> {
+    if (this.scheduleCache && Date.now() - this.scheduleCache.at < 600000) {
+      return this.scheduleCache.races;
+    }
+    const year = new Date().getFullYear();
+    const [jolpica, sessions] = await Promise.all([
+      this.json('https://api.jolpi.ca/ergast/f1/current.json'),
+      this.safeJson(`https://api.openf1.org/v1/sessions?year=${year}&session_type=Race`),
+    ]);
+    // date (YYYY-MM-DD) -> actual race end time from OpenF1
+    const endByDate = new Map<string, number>();
+    for (const s of sessions) {
+      if (s.date_start && s.date_end) {
+        endByDate.set(String(s.date_start).slice(0, 10), new Date(s.date_end).getTime());
+      }
+    }
+    const raw: any[] = jolpica?.MRData?.RaceTable?.Races ?? [];
+    const races: ScheduleRace[] = raw.map((r) => {
+      const start = new Date(`${r.date}T${r.time ?? '00:00:00Z'}`).getTime();
+      // OpenF1 end if known, else assume ~2.5h race.
+      const end = endByDate.get(r.date) ?? start + 2.5 * 60 * 60 * 1000;
+      return {
+        name: r.raceName,
+        round: r.round,
+        circuit: r.Circuit?.circuitName ?? '',
+        locality: r.Circuit?.Location?.locality ?? '—',
+        country: r.Circuit?.Location?.country ?? '—',
+        start,
+        end,
+      };
+    });
+    this.scheduleCache = { at: Date.now(), races };
+    return races;
+  }
+
+  private raceMatch(race: ScheduleRace, state: 'upcoming' | 'live' | 'idle'): Match {
+    const start = new Date(race.start);
+    const name = race.name;
     const isLive = state === 'live';
     const statusValue =
       state === 'live' ? 'Race in progress' : state === 'upcoming' ? this.countdown(start) : 'Finished';
@@ -129,7 +167,7 @@ export class F1Provider implements ScoreProvider {
         sport: 'f1',
         state,
         title: name,
-        subtitle: `Round ${race.round} · ${round}`,
+        subtitle: `Round ${race.round} · ${race.circuit}`,
         teams: [
           {
             name: isLive ? 'Status' : 'Race start',
@@ -137,8 +175,8 @@ export class F1Provider implements ScoreProvider {
           },
         ],
         meta: [
-          { label: 'Circuit', value: race.Circuit?.Location?.locality ?? '—' },
-          { label: 'Country', value: race.Circuit?.Location?.country ?? '—' },
+          { label: 'Circuit', value: race.locality },
+          { label: 'Country', value: race.country },
           { label: isLive ? 'Status' : state === 'idle' ? 'Last race' : 'Starts in', value: statusValue, highlight: true },
         ],
         others: [],
