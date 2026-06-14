@@ -12,14 +12,22 @@ import {
 } from '../core/types';
 import { fmtDateTime } from '../util/time';
 
+interface RaceSession {
+  name: string; // "Practice 1", "Qualifying", "Race", ...
+  shortLabel: string; // "FP1", "Quali", "Race", ...
+  start: number; // ms epoch
+  end: number; // ms epoch (from OpenF1, or a sensible fallback)
+}
+
 interface ScheduleRace {
   name: string;
   round: string;
   circuit: string;
   locality: string;
   country: string;
-  start: number; // ms epoch
-  end: number; // ms epoch (actual race end from OpenF1, or start + ~2.5h)
+  start: number; // race start (ms epoch)
+  end: number; // race end (ms epoch)
+  sessions: RaceSession[]; // FP1/2/3, (Sprint), Quali, Race - chronological
 }
 
 /**
@@ -88,13 +96,16 @@ export class F1Provider implements ScoreProvider {
         return this.idle();
       }
       const now = Date.now();
-      // Live = between the actual start and the actual end (from OpenF1).
-      const liveRace = races.find((r) => now >= r.start && now <= r.end);
-      const nextRace = races.filter((r) => r.start > now).sort((a, b) => a.start - b.start)[0];
 
-      if (liveRace) {
-        return this.raceMatch(liveRace, 'live');
+      // Is ANY session (practice / qualifying / race) live right now?
+      for (const r of races) {
+        const liveSession = r.sessions.find((s) => now >= s.start && now <= s.end);
+        if (liveSession) {
+          return this.raceMatch(r, 'live', liveSession);
+        }
       }
+      // Otherwise show the next Grand Prix with its weekend timetable.
+      const nextRace = races.filter((r) => r.start > now).sort((a, b) => a.start - b.start)[0];
       if (nextRace) {
         return this.raceMatch(nextRace, 'upcoming');
       }
@@ -106,8 +117,9 @@ export class F1Provider implements ScoreProvider {
   }
 
   /**
-   * Merge Jolpica (nice race names + full schedule) with OpenF1 (accurate race
-   * end times) so we can tell upcoming / live / finished precisely. Cached 10m.
+   * Merge Jolpica (nice names + full weekend timetable: FP1/2/3, Quali, Sprint,
+   * Race) with OpenF1 (accurate per-session end times) so we can tell which
+   * session is upcoming / live / finished precisely. Cached 10m.
    */
   private async loadSchedule(): Promise<ScheduleRace[]> {
     if (this.scheduleCache && Date.now() - this.scheduleCache.at < 600000) {
@@ -116,70 +128,120 @@ export class F1Provider implements ScoreProvider {
     const year = new Date().getFullYear();
     const [jolpica, sessions] = await Promise.all([
       this.json('https://api.jolpi.ca/ergast/f1/current.json'),
-      this.safeJson(`https://api.openf1.org/v1/sessions?year=${year}&session_type=Race`),
+      this.safeJson(`https://api.openf1.org/v1/sessions?year=${year}`), // ALL session types
     ]);
-    // date (YYYY-MM-DD) -> actual race end time from OpenF1
-    const endByDate = new Map<string, number>();
+    // "YYYY-MM-DD|Session Name" -> actual end time from OpenF1
+    const endByKey = new Map<string, number>();
     for (const s of sessions) {
-      if (s.date_start && s.date_end) {
-        endByDate.set(String(s.date_start).slice(0, 10), new Date(s.date_end).getTime());
+      if (s.date_start && s.date_end && s.session_name) {
+        endByKey.set(
+          `${String(s.date_start).slice(0, 10)}|${s.session_name}`,
+          new Date(s.date_end).getTime()
+        );
       }
     }
+
+    const buildSession = (obj: any, name: string, shortLabel: string): RaceSession | null => {
+      if (!obj || !obj.date) {
+        return null;
+      }
+      const start = new Date(`${obj.date}T${obj.time ?? '00:00:00Z'}`).getTime();
+      const isRace = name === 'Race';
+      const fallback = isRace ? 2.5 * 60 * 60 * 1000 : 75 * 60 * 1000;
+      const end = endByKey.get(`${obj.date}|${name}`) ?? start + fallback;
+      return { name, shortLabel, start, end };
+    };
+
     const raw: any[] = jolpica?.MRData?.RaceTable?.Races ?? [];
     const races: ScheduleRace[] = raw.map((r) => {
-      const start = new Date(`${r.date}T${r.time ?? '00:00:00Z'}`).getTime();
-      // OpenF1 end if known, else assume ~2.5h race.
-      const end = endByDate.get(r.date) ?? start + 2.5 * 60 * 60 * 1000;
+      const sessions: RaceSession[] = [
+        buildSession(r.FirstPractice, 'Practice 1', 'FP1'),
+        buildSession(r.SecondPractice, 'Practice 2', 'FP2'),
+        buildSession(r.ThirdPractice, 'Practice 3', 'FP3'),
+        buildSession(r.SprintQualifying ?? r.SprintShootout, 'Sprint Qualifying', 'SQ'),
+        buildSession(r.Sprint, 'Sprint', 'Sprint'),
+        buildSession(r.Qualifying, 'Qualifying', 'Quali'),
+        buildSession({ date: r.date, time: r.time }, 'Race', 'Race'),
+      ].filter((s): s is RaceSession => s !== null);
+      sessions.sort((a, b) => a.start - b.start);
+      const raceSession = sessions.find((s) => s.name === 'Race')!;
       return {
         name: r.raceName,
         round: r.round,
         circuit: r.Circuit?.circuitName ?? '',
-        locality: r.Circuit?.Location?.locality ?? '—',
-        country: r.Circuit?.Location?.country ?? '—',
-        start,
-        end,
+        locality: r.Circuit?.Location?.locality ?? '-',
+        country: r.Circuit?.Location?.country ?? '-',
+        start: raceSession.start,
+        end: raceSession.end,
+        sessions,
       };
     });
     this.scheduleCache = { at: Date.now(), races };
     return races;
   }
 
-  private raceMatch(race: ScheduleRace, state: 'upcoming' | 'live' | 'idle'): Match {
-    const start = new Date(race.start);
+  private raceMatch(
+    race: ScheduleRace,
+    state: 'upcoming' | 'live' | 'idle',
+    liveSession?: RaceSession
+  ): Match {
+    const raceStart = new Date(race.start);
     const name = race.name;
     const isLive = state === 'live';
+    const now = Date.now();
+    const SEP = ' · '; // middle dot
+
     const statusValue =
-      state === 'live' ? 'Race in progress' : state === 'upcoming' ? this.countdown(start) : 'Finished';
+      state === 'live'
+        ? `${liveSession?.name ?? 'Session'} in progress`
+        : state === 'upcoming'
+          ? this.countdown(raceStart)
+          : 'Finished';
     const statusBarText =
       state === 'live'
-        ? `${this.short(name)} · LIVE`
+        ? `${this.short(name)}${SEP}${liveSession?.shortLabel ?? ''} LIVE`
         : state === 'upcoming'
-          ? `${this.short(name)} · ${this.countdown(start)}`
-          : `${this.short(name)} · done`;
+          ? `${this.short(name)}${SEP}${this.countdown(raceStart)}`
+          : `${this.short(name)}${SEP}done`;
+
+    // Weekend timetable (each session with local time; the live one tagged).
+    const others = race.sessions.map((s) => {
+      const tag = now >= s.start && now <= s.end ? ' · 🔴 LIVE' : '';
+      return { left: s.name, right: fmtDateTime(new Date(s.start)) + tag };
+    });
 
     return {
       sport: 'f1',
       state,
       emoji: this.emoji,
       statusBarText,
-      tooltip: isLive ? `${name} — live now` : `${name} — ${fmtDateTime(start)}`,
+      tooltip: isLive
+        ? `${name} - ${liveSession?.name ?? ''} live now`
+        : `${name} - ${fmtDateTime(raceStart)}`,
       detail: {
         sport: 'f1',
         state,
         title: name,
-        subtitle: `Round ${race.round} · ${race.circuit}`,
+        subtitle: `Round ${race.round}${SEP}${race.circuit}`,
         teams: [
           {
-            name: isLive ? 'Status' : 'Race start',
-            score: isLive ? 'Live now — open Track Map 🏁' : fmtDateTime(start),
+            name: isLive ? 'Live now' : 'Race start',
+            score: isLive
+              ? `${liveSession?.name ?? 'Session'} - open Track Map`
+              : fmtDateTime(raceStart),
           },
         ],
         meta: [
           { label: 'Circuit', value: race.locality },
           { label: 'Country', value: race.country },
-          { label: isLive ? 'Status' : state === 'idle' ? 'Last race' : 'Starts in', value: statusValue, highlight: true },
+          {
+            label: isLive ? 'Status' : state === 'idle' ? 'Last race' : 'Race starts in',
+            value: statusValue,
+            highlight: true,
+          },
         ],
-        others: [],
+        others,
+        othersTitle: 'Race weekend',
       },
     };
   }
@@ -358,7 +420,7 @@ export class F1Provider implements ScoreProvider {
     if (this.rcCache && Date.now() - this.rcCache.at < F1Provider.MAP_CACHE_MS) {
       return this.rcCache.data;
     }
-    const candidates = await this.candidateRaceSessions();
+    const candidates = await this.candidateSessions();
     for (const s of candidates) {
       const rows = await this.safeJson(
         `https://api.openf1.org/v1/race_control?session_key=${s.session_key}`
@@ -481,8 +543,12 @@ export class F1Provider implements ScoreProvider {
     };
   }
 
-  /** Most-recent-first list of races that have already started. */
-  private async candidateRaceSessions(): Promise<any[]> {
+  /**
+   * Most-recent-first list of sessions (ALL types: practice, qualifying, race)
+   * that have already started — so the map/feed follow whatever session is live
+   * or most recent, not just the race.
+   */
+  private async candidateSessions(): Promise<any[]> {
     const year = new Date().getFullYear();
     const now = Date.now();
     const started = (list: any[]) =>
@@ -490,18 +556,14 @@ export class F1Provider implements ScoreProvider {
         .filter((s) => new Date(s.date_start).getTime() <= now)
         .sort((a, b) => new Date(b.date_start).getTime() - new Date(a.date_start).getTime());
 
-    let past = started(
-      await this.json(`https://api.openf1.org/v1/sessions?year=${year}&session_type=Race`)
-    );
+    let past = started(await this.json(`https://api.openf1.org/v1/sessions?year=${year}`));
     if (!past.length) {
-      past = started(
-        await this.json(`https://api.openf1.org/v1/sessions?year=${year - 1}&session_type=Race`)
-      );
+      past = started(await this.json(`https://api.openf1.org/v1/sessions?year=${year - 1}`));
     }
     if (!past.length) {
-      throw new Error('No completed F1 race found');
+      throw new Error('No completed F1 session found');
     }
-    return past.slice(0, 5);
+    return past.slice(0, 8);
   }
 
   /**
@@ -515,7 +577,7 @@ export class F1Provider implements ScoreProvider {
     to: Date;
     isLive: boolean;
   }> {
-    const candidates = await this.candidateRaceSessions();
+    const candidates = await this.candidateSessions();
     for (const session of candidates) {
       const start = new Date(session.date_start).getTime();
       const end = session.date_end ? new Date(session.date_end).getTime() : start + 7200000;

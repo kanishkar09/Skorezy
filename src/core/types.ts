@@ -35,7 +35,8 @@ export interface DetailView {
   teams: TeamScore[];
   meta: DetailRow[];
   balls?: Ball[];
-  others?: { left: string; right: string }[]; // other live matches
+  others?: { left: string; right: string }[]; // other live matches / weekend sessions
+  othersTitle?: string; // section heading for `others` (default "Also happening")
 }
 
 /** The unit every provider returns. */

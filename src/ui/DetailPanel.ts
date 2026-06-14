@@ -375,7 +375,7 @@ export class DetailPanel {
     }
     html += '</div>';
     if ((d.others||[]).length) {
-      html += '<div class="sectitle">Also happening</div>';
+      html += '<div class="sectitle">' + esc(d.othersTitle || 'Also happening') + '</div>';
       d.others.forEach(o => { html += '<div class="mini"><span>' + esc(o.left) + '</span><span>' +
         esc(o.right) + '</span></div>'; });
     }
