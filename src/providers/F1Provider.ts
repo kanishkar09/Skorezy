@@ -70,42 +70,78 @@ export class F1Provider implements ScoreProvider {
 
   private async live(): Promise<Match> {
     try {
-      const res = await fetch('https://api.jolpi.ca/ergast/f1/current/next.json');
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const json: any = await res.json();
-      const race = json?.MRData?.RaceTable?.Races?.[0];
-      if (!race) {
+      // Use the FULL season schedule (not /next) so we can tell whether a race
+      // is upcoming, live right now, or finished — based on its actual start time.
+      const json: any = await this.json('https://api.jolpi.ca/ergast/f1/current.json');
+      const races: any[] = json?.MRData?.RaceTable?.Races ?? [];
+      if (!races.length) {
         return this.idle();
       }
-      const start = new Date(`${race.date}T${race.time ?? '00:00:00Z'}`);
-      const countdown = this.countdown(start);
-      const name = race.raceName as string;
-      return {
-        sport: 'f1',
-        state: 'upcoming',
-        emoji: this.emoji,
-        statusBarText: `${this.short(name)} · ${countdown}`,
-        tooltip: `Next: ${name} — ${fmtDateTime(start)}`,
-        detail: {
-          sport: 'f1',
-          state: 'upcoming',
-          title: name,
-          subtitle: `Round ${race.round} · ${race.Circuit?.circuitName ?? ''}`,
-          teams: [{ name: 'Race start', score: fmtDateTime(start) }],
-          meta: [
-            { label: 'Circuit', value: race.Circuit?.Location?.locality ?? '—' },
-            { label: 'Country', value: race.Circuit?.Location?.country ?? '—' },
-            { label: 'Starts in', value: countdown, highlight: true },
-          ],
-          others: [],
-        },
-      };
+      const now = Date.now();
+      const RACE_WINDOW_MS = 3.5 * 60 * 60 * 1000; // treat ~3.5h around start as "live"
+      const withStart = races.map((r) => ({
+        race: r,
+        start: new Date(`${r.date}T${r.time ?? '00:00:00Z'}`).getTime(),
+      }));
+
+      const liveRace = withStart.find((x) => now >= x.start && now <= x.start + RACE_WINDOW_MS);
+      const nextRace = withStart
+        .filter((x) => x.start > now)
+        .sort((a, b) => a.start - b.start)[0];
+
+      if (liveRace) {
+        return this.raceMatch(liveRace.race, new Date(liveRace.start), 'live');
+      }
+      if (nextRace) {
+        return this.raceMatch(nextRace.race, new Date(nextRace.start), 'upcoming');
+      }
+      // Season finished — show the final race of the year.
+      const last = withStart[withStart.length - 1];
+      return this.raceMatch(last.race, new Date(last.start), 'idle');
     } catch (err: any) {
       // Let fetch() decide the fallback (mock when offline).
       throw err instanceof Error ? err : new Error(String(err));
     }
+  }
+
+  private raceMatch(race: any, start: Date, state: 'upcoming' | 'live' | 'idle'): Match {
+    const name = race.raceName as string;
+    const round = race.Circuit?.circuitName ?? '';
+    const isLive = state === 'live';
+    const statusValue =
+      state === 'live' ? 'Race in progress' : state === 'upcoming' ? this.countdown(start) : 'Finished';
+    const statusBarText =
+      state === 'live'
+        ? `${this.short(name)} · LIVE`
+        : state === 'upcoming'
+          ? `${this.short(name)} · ${this.countdown(start)}`
+          : `${this.short(name)} · done`;
+
+    return {
+      sport: 'f1',
+      state,
+      emoji: this.emoji,
+      statusBarText,
+      tooltip: isLive ? `${name} — live now` : `${name} — ${fmtDateTime(start)}`,
+      detail: {
+        sport: 'f1',
+        state,
+        title: name,
+        subtitle: `Round ${race.round} · ${round}`,
+        teams: [
+          {
+            name: isLive ? 'Status' : 'Race start',
+            score: isLive ? 'Live now — open Track Map 🏁' : fmtDateTime(start),
+          },
+        ],
+        meta: [
+          { label: 'Circuit', value: race.Circuit?.Location?.locality ?? '—' },
+          { label: 'Country', value: race.Circuit?.Location?.country ?? '—' },
+          { label: isLive ? 'Status' : state === 'idle' ? 'Last race' : 'Starts in', value: statusValue, highlight: true },
+        ],
+        others: [],
+      },
+    };
   }
 
   /**
