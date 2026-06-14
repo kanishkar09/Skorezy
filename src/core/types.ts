@@ -134,6 +134,17 @@ export interface F1Standings {
   constructors: StandingRow[];
 }
 
+// ---- F1 race control feed (OpenF1) ----
+
+export interface RaceControlMessage {
+  lap: number | null;
+  category: string; // Flag | Drs | SafetyCar | SessionStatus | Other
+  flag: string; // GREEN | YELLOW | DOUBLE YELLOW | RED | BLUE | CLEAR | CHEQUERED | BLACK AND WHITE | ""
+  scope: string; // Track | Sector | Driver | ""
+  driver: number | null;
+  message: string;
+}
+
 // ---- F1 live track map (OpenF1) ----
 
 export interface TrackMapCar {

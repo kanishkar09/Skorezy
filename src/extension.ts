@@ -45,6 +45,7 @@ export function activate(context: vscode.ExtensionContext): void {
           ? (season: string, round: string) => f1Provider!.getRaceResult(season, round)
           : undefined,
         f1Standings: f1Provider ? () => f1Provider!.getStandings() : undefined,
+        f1RaceControl: f1Provider ? () => f1Provider!.getRaceControl() : undefined,
       });
     }),
     vscode.commands.registerCommand('skorezy.refresh', () => manager?.refreshNow())

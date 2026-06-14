@@ -7,6 +7,7 @@ import {
   F1RaceItem,
   F1RaceResult,
   F1Standings,
+  RaceControlMessage,
 } from '../core/types';
 
 export interface PanelLoaders {
@@ -16,6 +17,7 @@ export interface PanelLoaders {
   f1Races?: () => Promise<F1RaceItem[]>;
   f1RaceResult?: (season: string, round: string) => Promise<F1RaceResult>;
   f1Standings?: () => Promise<F1Standings>;
+  f1RaceControl?: () => Promise<RaceControlMessage[]>;
 }
 
 /** Singleton webview panel showing full detail for all sports, with tabs. */
@@ -67,6 +69,8 @@ export class DetailPanel {
           await this.sendLoader(this.loaders.f1Races, 'f1Races');
         } else if (msg?.type === 'requestF1Standings') {
           await this.sendLoader(this.loaders.f1Standings, 'f1Standings');
+        } else if (msg?.type === 'requestF1RaceControl') {
+          await this.sendLoader(this.loaders.f1RaceControl, 'f1RaceControl');
         } else if (msg?.type === 'requestF1RaceResult') {
           await this.sendLoader(
             this.loaders.f1RaceResult
@@ -237,6 +241,13 @@ export class DetailPanel {
   table.results td, table.results th { padding:4px 5px; border-bottom:1px solid var(--vscode-panel-border); text-align:left; }
   table.results td.p { width:26px; text-align:right; color:var(--vscode-descriptionForeground); }
   table.results td.rt { text-align:right; color:var(--vscode-descriptionForeground); }
+  /* Race control feed */
+  .rcrow { display:flex; align-items:flex-start; gap:8px; padding:6px 4px;
+    border-bottom:1px solid var(--vscode-panel-border); font-size:11px; }
+  .rcflag { width:8px; height:8px; border-radius:2px; flex-shrink:0; margin-top:3px;
+    border:1px solid rgba(255,255,255,0.25); }
+  .rclap { width:26px; flex-shrink:0; color:var(--vscode-descriptionForeground); font-variant-numeric:tabular-nums; }
+  .rcmsg { flex:1; line-height:1.35; }
 </style>
 </head>
 <body>
@@ -383,19 +394,68 @@ export class DetailPanel {
     const body = document.getElementById('body');
     let html = '<div class="subtoggle">' +
       '<button id="f1-sched" class="' + (f1View==='schedule'?'active':'') + '">📅 Schedule</button>' +
-      '<button id="f1-map" class="' + (f1View==='map'?'active':'') + '">🗺️ Track Map</button>' +
+      '<button id="f1-map" class="' + (f1View==='map'?'active':'') + '">🗺️ Map</button>' +
+      '<button id="f1-rc" class="' + (f1View==='rc'?'active':'') + '">🚩 Control</button>' +
       '<button id="f1-races" class="' + (f1View==='races'?'active':'') + '">🏁 Races</button>' +
       '</div>';
     if (f1View === 'schedule') { html += buildDetail(m.detail) + '<div id="standingsbody"></div>'; }
     else if (f1View === 'map') { html += '<div id="mapcontainer"></div>'; }
+    else if (f1View === 'rc') { html += '<div id="rcbody"></div>'; }
     else { html += '<div id="racesbody"></div>'; }
     body.innerHTML = html;
-    document.getElementById('f1-sched').onclick = () => { f1View='schedule'; stopAnim(); stopMapTimer(); render(); };
-    document.getElementById('f1-map').onclick = () => { f1View='map'; render(); };
-    document.getElementById('f1-races').onclick = () => { f1View='races'; stopAnim(); stopMapTimer(); render(); };
+    document.getElementById('f1-sched').onclick = () => { f1View='schedule'; stopAnim(); stopMapTimer(); stopRcTimer(); render(); };
+    document.getElementById('f1-map').onclick = () => { f1View='map'; stopRcTimer(); render(); };
+    document.getElementById('f1-rc').onclick = () => { f1View='rc'; stopAnim(); stopMapTimer(); render(); };
+    document.getElementById('f1-races').onclick = () => { f1View='races'; stopAnim(); stopMapTimer(); stopRcTimer(); render(); };
     if (f1View === 'map') { renderMap(); }
     else if (f1View === 'races') { stopAnim(); renderRaces(); }
+    else if (f1View === 'rc') { stopAnim(); renderRaceControl(); }
     else { stopAnim(); ensureStandings(); }
+  }
+
+  // ---- F1 Race Control feed (flags / SC / DRS / penalties) ----
+  let rcData = null, rcStatus = 'idle', rcError = '', rcTimer = null;
+  function stopRcTimer() { if (rcTimer) { clearInterval(rcTimer); rcTimer = null; } }
+  function startRcTimer() {
+    stopRcTimer();
+    rcTimer = setInterval(() => {
+      if (!document.hidden && f1View === 'rc') { vscode.postMessage({ type: 'requestF1RaceControl' }); }
+    }, 30000);
+  }
+
+  function flagColor(flag, category) {
+    const f = (flag || '').toUpperCase();
+    if (f.includes('GREEN')) return '#16a34a';
+    if (f.includes('DOUBLE YELLOW')) return '#d97706';
+    if (f.includes('YELLOW')) return '#eab308';
+    if (f.includes('RED')) return '#dc2626';
+    if (f.includes('BLUE')) return '#2563eb';
+    if (f.includes('CHEQUERED')) return '#111827';
+    if (f.includes('BLACK AND WHITE')) return '#a16207';
+    if (f.includes('CLEAR')) return '#6b7280';
+    if ((category||'') === 'SafetyCar') return '#f59e0b';
+    if ((category||'') === 'Drs') return '#0ea5e9';
+    return '#6b7280';
+  }
+
+  function renderRaceControl() {
+    const c = document.getElementById('rcbody');
+    if (!c) return;
+    if (rcStatus === 'idle') { rcStatus='loading'; vscode.postMessage({ type:'requestF1RaceControl' }); startRcTimer(); }
+    if (rcStatus === 'loading' && !rcData) { c.innerHTML = '<div class="empty">Loading race control…</div>'; return; }
+    if (rcStatus === 'error') { c.innerHTML = '<div class="empty">⚠ ' + esc(rcError) + '</div>'; return; }
+    if (!rcData || !rcData.length) { c.innerHTML = '<div class="empty">No race control messages</div>'; return; }
+    let html = '<div class="maptitle">Race control · latest first</div>';
+    rcData.forEach((r) => {
+      const col = flagColor(r.flag, r.category);
+      const tag = r.flag ? r.flag : r.category;
+      const lap = r.lap ? ('L' + r.lap) : '';
+      html += '<div class="rcrow">' +
+        '<span class="rcflag" style="background:' + col + '"></span>' +
+        '<span class="rclap">' + esc(lap) + '</span>' +
+        '<span class="rcmsg">' + esc(r.message) + '</span></div>';
+    });
+    c.innerHTML = html;
   }
 
   // ---- F1 championship standings (in the Schedule tab) ----
@@ -666,6 +726,12 @@ export class DetailPanel {
     } else if (msg.type === 'f1StandingsError') {
       standingsError = msg.message; standingsStatus = 'error';
       if (f1View === 'schedule') ensureStandings();
+    } else if (msg.type === 'f1RaceControl') {
+      rcData = msg.data; rcStatus = 'ready';
+      if (f1View === 'rc') renderRaceControl();
+    } else if (msg.type === 'f1RaceControlError') {
+      rcError = msg.message; rcStatus = 'error';
+      if (f1View === 'rc') renderRaceControl();
     }
   });
   vscode.postMessage({ type: 'ready' });

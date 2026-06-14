@@ -8,6 +8,7 @@ import {
   F1ResultRow,
   F1Standings,
   StandingRow,
+  RaceControlMessage,
 } from '../core/types';
 import { fmtDateTime } from '../util/time';
 
@@ -27,6 +28,7 @@ export class F1Provider implements ScoreProvider {
   private mapCache?: { at: number; data: TrackMapData };
   private static readonly MAP_CACHE_MS = 25000;
   private standingsCache?: { at: number; data: F1Standings };
+  private rcCache?: { at: number; data: RaceControlMessage[] };
 
   constructor(private readonly useMockData: boolean = false) {}
 
@@ -308,6 +310,39 @@ export class F1Provider implements ScoreProvider {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Race control feed (flags, safety car, DRS, penalties) for the most recent
+   * race that has messages. Keyless (OpenF1), cached 25s, newest-first.
+   */
+  async getRaceControl(): Promise<RaceControlMessage[]> {
+    if (this.rcCache && Date.now() - this.rcCache.at < F1Provider.MAP_CACHE_MS) {
+      return this.rcCache.data;
+    }
+    const candidates = await this.candidateRaceSessions();
+    for (const s of candidates) {
+      const rows = await this.safeJson(
+        `https://api.openf1.org/v1/race_control?session_key=${s.session_key}`
+      );
+      if (rows.length) {
+        const data: RaceControlMessage[] = rows
+          .filter((r: any) => r.message)
+          .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 60)
+          .map((r: any) => ({
+            lap: r.lap_number ?? null,
+            category: r.category ?? 'Other',
+            flag: r.flag ?? '',
+            scope: r.scope ?? '',
+            driver: r.driver_number ?? null,
+            message: r.message,
+          }));
+        this.rcCache = { at: Date.now(), data };
+        return data;
+      }
+    }
+    return [];
   }
 
   /** Driver + constructor championship standings (cached 10 min). */
