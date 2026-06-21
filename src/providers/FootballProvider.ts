@@ -36,6 +36,7 @@ interface FEvent {
   clock: string;
   date: number;
   venue: string;
+  clockSec: number;
   scorers: { time: string; name: string; note: string }[];
   home: { name: string; abbr: string; score: string; crest: string };
   away: { name: string; abbr: string; score: string; crest: string };
@@ -268,6 +269,7 @@ export class FootballProvider implements ScoreProvider {
       clock: e.status?.displayClock ?? '',
       date: new Date(e.date).getTime(),
       venue: comp.venue?.fullName ?? '',
+      clockSec: typeof e.status?.clock === 'number' ? e.status.clock : 0,
       scorers,
       home: {
         name: home.team?.displayName ?? 'Home',
@@ -351,6 +353,8 @@ export class FootballProvider implements ScoreProvider {
         others,
         othersTitle,
         countdownTo: isPre ? e.date : undefined,
+        // Tick mm:ss only for a cleanly-running half (skip stoppage "+" and halftime).
+        liveClockSec: isLive && e.clockSec > 0 && !e.clock.includes('+') ? e.clockSec : undefined,
       },
     };
   }

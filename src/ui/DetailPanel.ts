@@ -374,9 +374,10 @@ export class DetailPanel {
     const isLive = d.state === 'live';
     const statusRow = (d.meta || []).find((m) => m.label === 'Status');
     html += '<div class="fbmid">';
-    // Live match clock shown prominently ABOVE the score.
-    if (isLive && statusRow) {
-      html += '<span class="livetimer"><span class="ld"></span>' + esc(statusRow.value) + '</span>';
+    // Live match clock shown prominently ABOVE the score (ticking mm:ss when running).
+    if (isLive) {
+      const inner = d.liveClockSec != null ? ltSpan(d.liveClockSec) : esc(statusRow ? statusRow.value : 'LIVE');
+      html += '<span class="livetimer"><span class="ld"></span>' + inner + '</span>';
     }
     html += hasScore ? '<span class="sc">' + esc(h.score) + ' - ' + esc(a.score) + '</span>'
                      : '<span class="vs">VS</span>';
@@ -915,6 +916,9 @@ export class DetailPanel {
     return s + 's';
   }
   function cdSpan(target){ return '<span class="cd" data-to="' + target + '">' + fmtCd(target - Date.now()) + '</span>'; }
+  function fmtClock(sec){ const m = Math.floor(sec/60), s = Math.floor(sec%60); return m + ':' + String(s).padStart(2,'0'); }
+  // Live match clock: anchored to the server's elapsed seconds, ticks client-side.
+  function ltSpan(baseSec){ return '<span class="lt" data-base="' + baseSec + '" data-at="' + Date.now() + '">' + fmtClock(baseSec) + '</span>'; }
   let lastCdRefresh = 0;
   function tickCountdowns(){
     let anyZero = false;
@@ -923,7 +927,10 @@ export class DetailPanel {
       el.textContent = fmtCd(ms);
       if (ms <= 0) anyZero = true;
     });
-    // A countdown reached zero — re-poll so it flips to live (throttled to once/min).
+    document.querySelectorAll('.lt[data-base]').forEach((el) => {
+      const base = +el.getAttribute('data-base'), at = +el.getAttribute('data-at');
+      el.textContent = fmtClock(base + (Date.now() - at) / 1000);
+    });
     if (anyZero && Date.now() - lastCdRefresh > 60000) {
       lastCdRefresh = Date.now();
       vscode.postMessage({ type: 'refresh' });

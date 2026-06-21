@@ -39,6 +39,7 @@ export interface DetailView {
   others?: { left: string; right: string }[]; // other live matches / weekend sessions
   othersTitle?: string; // section heading for `others` (default "Also happening")
   countdownTo?: number; // epoch ms — panel shows a live-ticking countdown to this
+  liveClockSec?: number; // live match elapsed seconds — panel ticks it as mm:ss
 }
 
 /** The unit every provider returns. */
