@@ -38,6 +38,7 @@ export interface DetailView {
   balls?: Ball[];
   others?: { left: string; right: string }[]; // other live matches / weekend sessions
   othersTitle?: string; // section heading for `others` (default "Also happening")
+  countdownTo?: number; // epoch ms — panel shows a live-ticking countdown to this
 }
 
 /** The unit every provider returns. */

@@ -234,12 +234,12 @@ export class F1Provider implements ScoreProvider {
         meta: [
           { label: 'Circuit', value: race.locality },
           { label: 'Country', value: race.country },
-          {
-            label: isLive ? 'Status' : state === 'idle' ? 'Last race' : 'Race starts in',
-            value: statusValue,
-            highlight: true,
-          },
+          // Static row only for live/finished; upcoming uses the live ticking countdown.
+          ...(state === 'upcoming'
+            ? []
+            : [{ label: isLive ? 'Status' : 'Last race', value: statusValue, highlight: true }]),
         ],
+        countdownTo: state === 'upcoming' ? race.start : undefined,
         others,
         othersTitle: 'Race weekend',
       },

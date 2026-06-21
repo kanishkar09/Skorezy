@@ -20,6 +20,7 @@ export interface PanelLoaders {
   f1RaceResult?: (season: string, round: string) => Promise<F1RaceResult>;
   f1Standings?: () => Promise<F1Standings>;
   f1RaceControl?: () => Promise<RaceControlMessage[]>;
+  refresh?: () => void;
 }
 
 /** Singleton webview panel showing full detail for all sports, with tabs. */
@@ -75,6 +76,8 @@ export class DetailPanel {
           await this.sendLoader(this.loaders.f1Standings, 'f1Standings');
         } else if (msg?.type === 'requestF1RaceControl') {
           await this.sendLoader(this.loaders.f1RaceControl, 'f1RaceControl');
+        } else if (msg?.type === 'refresh') {
+          this.loaders.refresh?.();
         } else if (msg?.type === 'requestF1RaceResult') {
           await this.sendLoader(
             this.loaders.f1RaceResult
@@ -342,8 +345,11 @@ export class DetailPanel {
     html += '<div class="fbteam">' + crestImg(a) + '<span class="nm">' + esc(a.name) + '</span></div>';
     html += '</div></div>';
     const chips = (d.meta || []).filter((m) => m.label !== 'Status');
-    if (chips.length) {
+    if (chips.length || d.countdownTo) {
       html += '<div class="fbmeta">';
+      if (d.countdownTo) {
+        html += '<div><span class="l">Kicks off in</span><span class="v">' + cdSpan(d.countdownTo) + '</span></div>';
+      }
       chips.forEach((m) => { html += '<div><span class="l">' + esc(m.label) + '</span><span class="v">' + esc(m.value) + '</span></div>'; });
       html += '</div>';
     }
@@ -495,6 +501,10 @@ export class DetailPanel {
       html += '</div>';
     }
     html += '</div>';
+    if (d.countdownTo) {
+      html += '<div class="meta" style="margin-top:6px"><div><span class="lbl">Starts in</span>' +
+        '<span class="val hi">' + cdSpan(d.countdownTo) + '</span></div></div>';
+    }
     if ((d.others||[]).length) {
       html += '<div class="sectitle">' + esc(d.othersTitle || 'Also happening') + '</div>';
       d.others.forEach(o => { html += '<div class="mini"><span>' + esc(o.left) + '</span><span>' +
@@ -804,6 +814,33 @@ export class DetailPanel {
     return '<span class="badge ' + state + '">' + dot + state + '</span>';
   }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // ---- Live ticking countdowns ----
+  function fmtCd(ms){
+    if (ms <= 0) return 'now';
+    const d = Math.floor(ms/86400000), h = Math.floor(ms%86400000/3600000),
+          m = Math.floor(ms%3600000/60000), s = Math.floor(ms%60000/1000);
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm ' + s + 's';
+    return s + 's';
+  }
+  function cdSpan(target){ return '<span class="cd" data-to="' + target + '">' + fmtCd(target - Date.now()) + '</span>'; }
+  let lastCdRefresh = 0;
+  function tickCountdowns(){
+    let anyZero = false;
+    document.querySelectorAll('.cd[data-to]').forEach((el) => {
+      const ms = (+el.getAttribute('data-to')) - Date.now();
+      el.textContent = fmtCd(ms);
+      if (ms <= 0) anyZero = true;
+    });
+    // A countdown reached zero — re-poll so it flips to live (throttled to once/min).
+    if (anyZero && Date.now() - lastCdRefresh > 60000) {
+      lastCdRefresh = Date.now();
+      vscode.postMessage({ type: 'refresh' });
+    }
+  }
+  setInterval(tickCountdowns, 1000);
 
   window.addEventListener('message', e => {
     const msg = e.data || {};

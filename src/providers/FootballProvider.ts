@@ -270,9 +270,6 @@ export class FootballProvider implements ScoreProvider {
       { label: 'Competition', value: e.league },
       { label: 'Status', value: isLive ? `${e.desc} ${e.clock}`.trim() : isPre ? 'Upcoming' : e.desc, highlight: isLive },
     ];
-    if (isPre) {
-      meta.push({ label: 'Kicks off in', value: this.countdown(e.date), highlight: true });
-    }
     if (e.venue) {
       meta.push({ label: 'Venue', value: e.venue, highlight: false });
     }
@@ -296,6 +293,7 @@ export class FootballProvider implements ScoreProvider {
         meta,
         others,
         othersTitle,
+        countdownTo: isPre ? e.date : undefined,
       },
     };
   }

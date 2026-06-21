@@ -47,6 +47,7 @@ export function activate(context: vscode.ExtensionContext): void {
           : undefined,
         f1Standings: f1Provider ? () => f1Provider!.getStandings() : undefined,
         f1RaceControl: f1Provider ? () => f1Provider!.getRaceControl() : undefined,
+        refresh: () => manager?.refreshNow(),
       });
     }),
     vscode.commands.registerCommand('skorezy.refresh', () => manager?.refreshNow())
