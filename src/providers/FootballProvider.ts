@@ -34,8 +34,8 @@ interface FEvent {
   date: number;
   venue: string;
   scorers: { time: string; name: string; note: string }[];
-  home: { name: string; abbr: string; score: string };
-  away: { name: string; abbr: string; score: string };
+  home: { name: string; abbr: string; score: string; crest: string };
+  away: { name: string; abbr: string; score: string; crest: string };
 }
 
 export class FootballProvider implements ScoreProvider {
@@ -211,11 +211,13 @@ export class FootballProvider implements ScoreProvider {
         name: home.team?.displayName ?? 'Home',
         abbr: home.team?.abbreviation ?? 'HOM',
         score: home.score ?? '',
+        crest: home.team?.logo ?? home.team?.logos?.[0]?.href ?? '',
       },
       away: {
         name: away.team?.displayName ?? 'Away',
         abbr: away.team?.abbreviation ?? 'AWY',
         score: away.score ?? '',
+        crest: away.team?.logo ?? away.team?.logos?.[0]?.href ?? '',
       },
     };
   }
@@ -283,8 +285,8 @@ export class FootballProvider implements ScoreProvider {
         title: `${e.home.name} vs ${e.away.name}`,
         subtitle: isPre ? `${e.league} · ${fmtDateTime(new Date(e.date))}` : `${e.league} · ${e.desc} ${isLive ? e.clock : ''}`.trim(),
         teams: [
-          { name: e.home.name, score: e.home.score || undefined },
-          { name: e.away.name, score: e.away.score || undefined, dim: e.state === 'post' && Number(e.away.score) < Number(e.home.score) },
+          { name: e.home.name, score: e.home.score || undefined, crest: e.home.crest || undefined },
+          { name: e.away.name, score: e.away.score || undefined, crest: e.away.crest || undefined },
         ],
         meta,
         others,

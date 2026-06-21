@@ -149,7 +149,7 @@ export class DetailPanel {
 
   private html(): string {
     const nonce = getNonce();
-    const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+    const csp = `default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -252,6 +252,20 @@ export class DetailPanel {
     border:1px solid rgba(255,255,255,0.25); }
   .rclap { width:26px; flex-shrink:0; color:var(--vscode-descriptionForeground); font-variant-numeric:tabular-nums; }
   .rcmsg { flex:1; line-height:1.35; }
+  /* Football hero scoreboard */
+  .fbhero { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:16px 4px 8px; }
+  .fbteam { flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; min-width:0; }
+  .fbteam img { width:52px; height:52px; object-fit:contain; }
+  .fbteam .crestph { width:52px; height:52px; border-radius:50%; background:var(--vscode-badge-background);
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; color:var(--vscode-badge-foreground); }
+  .fbteam .nm { font-size:12px; text-align:center; line-height:1.2; }
+  .fbmid { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:80px; }
+  .fbmid .sc { font-size:30px; font-weight:800; letter-spacing:1px; }
+  .fbmid .vs { font-size:18px; font-weight:700; color:var(--vscode-descriptionForeground); }
+  .fbmid .clk { font-size:10px; color:var(--vscode-textLink-foreground); font-weight:600; }
+  .fbmeta { display:flex; flex-wrap:wrap; gap:6px 16px; padding:4px 2px 0; }
+  .fbmeta div .l { font-size:9px; color:var(--vscode-descriptionForeground); display:block; }
+  .fbmeta div .v { font-size:12px; }
 </style>
 </head>
 <body>
@@ -288,6 +302,43 @@ export class DetailPanel {
     body.innerHTML = buildDetail(m.detail);
   }
 
+  function crestImg(team) {
+    if (team && team.crest) { return '<img src="' + esc(team.crest) + '" alt="">'; }
+    const ab = ((team && team.name) || '?').replace(/[^A-Za-z]/g,'').slice(0, 3).toUpperCase() || '?';
+    return '<div class="crestph">' + esc(ab) + '</div>';
+  }
+
+  // Rich football card: crests + big scoreline (or VS), status, meta chips, goals.
+  function buildFootballDetail(d) {
+    const h = (d.teams && d.teams[0]) || { name: '?' };
+    const a = (d.teams && d.teams[1]) || { name: '?' };
+    const hasScore = h.score != null && h.score !== '';
+    let html = '<div class="card">';
+    html += badge(d.state);
+    if (d.subtitle) { html += '<div class="sub">' + esc(d.subtitle) + '</div>'; }
+    html += '<div class="fbhero">';
+    html += '<div class="fbteam">' + crestImg(h) + '<span class="nm">' + esc(h.name) + '</span></div>';
+    html += '<div class="fbmid">';
+    html += hasScore ? '<span class="sc">' + esc(h.score) + ' - ' + esc(a.score) + '</span>'
+                     : '<span class="vs">VS</span>';
+    const statusRow = (d.meta || []).find((m) => m.label === 'Status');
+    if (statusRow) { html += '<span class="clk">' + esc(statusRow.value) + '</span>'; }
+    html += '</div>';
+    html += '<div class="fbteam">' + crestImg(a) + '<span class="nm">' + esc(a.name) + '</span></div>';
+    html += '</div></div>';
+    const chips = (d.meta || []).filter((m) => m.label !== 'Status');
+    if (chips.length) {
+      html += '<div class="fbmeta">';
+      chips.forEach((m) => { html += '<div><span class="l">' + esc(m.label) + '</span><span class="v">' + esc(m.value) + '</span></div>'; });
+      html += '</div>';
+    }
+    if ((d.others || []).length) {
+      html += '<div class="sectitle" style="margin-top:12px">' + esc(d.othersTitle || 'Also happening') + '</div>';
+      d.others.forEach((o) => { html += '<div class="mini"><span>' + esc(o.left) + '</span><span>' + esc(o.right) + '</span></div>'; });
+    }
+    return html;
+  }
+
   // ---- Football: Featured match + All Matches browser + Standings ----
   let fbView = 'featured'; // featured | all | standings
   let fbMatches = null, fbStatus = 'idle', fbError = '', fbSelected = null;
@@ -304,7 +355,7 @@ export class DetailPanel {
     document.getElementById('fb-all').onclick = () => { fbView='all'; render(); };
     document.getElementById('fb-st').onclick = () => { fbView='standings'; render(); };
     const fb = document.getElementById('fbbody');
-    if (fbView === 'featured') { fb.innerHTML = buildDetail(m.detail); return; }
+    if (fbView === 'featured') { fb.innerHTML = buildFootballDetail(m.detail); return; }
     if (fbView === 'standings') { renderFootballStandings(fb); return; }
     if (fbSelected) {
       fb.innerHTML = '<span class="backbtn" id="fb-back">← All matches</span>' + fbMatchDetail(fbSelected);

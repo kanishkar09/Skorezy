@@ -11,6 +11,7 @@ export interface TeamScore {
   flag?: string; // emoji flag or badge
   score?: string; // e.g. "245/3 (38.2 ov)" or "2"
   dim?: boolean; // render greyed out (e.g. the team not currently batting)
+  crest?: string; // logo/crest image URL (football)
 }
 
 /** A generic label/value chip (CRR, REQ, scorer, lap, etc.). */
