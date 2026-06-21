@@ -282,16 +282,25 @@ export class DetailPanel {
   .fbmid .livetimer { font-size:11px; color:#fff; background:#c0392b; padding:1px 8px; border-radius:9px;
     display:inline-flex; align-items:center; gap:5px; margin-bottom:4px; font-weight:600; }
   .fbmid .livetimer .ld { width:5px; height:5px; border-radius:50%; background:#fff; animation:pulse 1.2s infinite; }
-  /* Match detail sub-toggle + lineups + timeline */
-  .subtoggle.sub2 button { font-size:11px; padding:5px 6px; }
-  .lurow { display:flex; align-items:center; gap:8px; padding:3px 4px; font-size:11px;
-    border-bottom:1px solid var(--vscode-panel-border); }
-  .lurow.sub { opacity:.7; }
-  .lurow .lunum { width:20px; text-align:right; color:var(--vscode-descriptionForeground); }
-  .lurow .luname { flex:1; }
-  .lurow .lupos { font-size:9px; color:var(--vscode-descriptionForeground); }
-  .lusub { font-size:10px; text-transform:uppercase; letter-spacing:.5px;
-    color:var(--vscode-descriptionForeground); margin:8px 0 4px; }
+  /* Match page: pitch lineup + timeline */
+  .mdgrid { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
+  .pitchwrap { flex:1; min-width:230px; }
+  .tlwrap { flex:1; min-width:210px; max-height:420px; overflow:auto; }
+  .pitch { position:relative; width:100%; height:420px; border:2px solid rgba(255,255,255,.25); border-radius:8px;
+    overflow:hidden; background:repeating-linear-gradient(#1f7a33 0 36px, #1c7030 36px 72px); }
+  .pitch .pmid { position:absolute; top:50%; left:0; right:0; height:2px; background:rgba(255,255,255,.3); }
+  .pitch .pcirc { position:absolute; top:50%; left:50%; width:64px; height:64px; border:2px solid rgba(255,255,255,.3);
+    border-radius:50%; transform:translate(-50%,-50%); }
+  .pdot { position:absolute; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; gap:1px; }
+  .pdot .pnum { width:21px; height:21px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:10px; font-weight:700; color:#fff; border:1px solid rgba(255,255,255,.7); }
+  .pdot.home .pnum { background:#2563eb; } .pdot.away .pnum { background:#dc2626; }
+  .pdot .plab { font-size:8px; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); white-space:nowrap;
+    max-width:56px; overflow:hidden; text-overflow:ellipsis; }
+  .pkey { display:flex; justify-content:space-between; gap:8px; font-size:10px;
+    color:var(--vscode-descriptionForeground); margin-top:6px; }
+  .pdotmini { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
+  .pdotmini.home { background:#2563eb; } .pdotmini.away { background:#dc2626; }
   .tlrow { display:flex; gap:8px; padding:5px 2px; font-size:11px; border-bottom:1px solid var(--vscode-panel-border); }
   .tlrow .tlt { width:30px; flex-shrink:0; color:var(--vscode-textLink-foreground); font-variant-numeric:tabular-nums; }
   .tlrow .tltext { flex:1; line-height:1.35; }
@@ -460,48 +469,62 @@ export class DetailPanel {
     };
   }
 
-  // Match detail with Summary / Lineups / Timeline sub-views.
+  // Match page: score card + lineup-on-pitch + timeline (loaded together).
   function renderFbMatch(d, fb, backLabel) {
     let html = '';
     if (backLabel) { html += '<span class="backbtn" id="fb-back">← ' + esc(backLabel) + '</span>'; }
-    if (d.eventId) {
-      html += '<div class="subtoggle sub2">' +
-        '<button id="md-sum" class="' + (fbMd==='summary'?'active':'') + '">Summary</button>' +
-        '<button id="md-lu" class="' + (fbMd==='lineups'?'active':'') + '">Lineups</button>' +
-        '<button id="md-tl" class="' + (fbMd==='timeline'?'active':'') + '">Timeline</button></div>';
-    }
-    html += '<div id="mdbody"></div>';
+    html += buildFootballDetail(d);            // score card on top
+    if (d.eventId) { html += '<div id="mdextra"></div>'; }
     fb.innerHTML = html;
-    if (backLabel) { document.getElementById('fb-back').onclick = () => { fbSelected=null; fbMd='summary'; render(); }; }
-    if (d.eventId) {
-      document.getElementById('md-sum').onclick = () => { fbMd='summary'; renderFbMatch(d, fb, backLabel); };
-      document.getElementById('md-lu').onclick = () => { fbMd='lineups'; renderFbMatch(d, fb, backLabel); };
-      document.getElementById('md-tl').onclick = () => { fbMd='timeline'; renderFbMatch(d, fb, backLabel); };
-    }
-    const body = document.getElementById('mdbody');
-    if (!d.eventId || fbMd === 'summary') { body.innerHTML = buildFootballDetail(d); return; }
+    if (backLabel) { document.getElementById('fb-back').onclick = () => { fbSelected = null; render(); }; }
+    if (!d.eventId) { return; }
+    const ex = document.getElementById('mdextra');
     const md = fbMdCache[d.eventId];
     if (!md) {
-      if (fbMdStatus !== 'loading') { fbMdStatus='loading'; vscode.postMessage({ type:'requestFootballMatchDetail', leagueCode:d.leagueCode, eventId:d.eventId }); }
-      body.innerHTML = '<div class="empty">Loading ' + esc(fbMd) + '…</div>';
+      if (fbMdStatus !== 'loading') { fbMdStatus = 'loading'; vscode.postMessage({ type: 'requestFootballMatchDetail', leagueCode: d.leagueCode, eventId: d.eventId }); }
+      ex.innerHTML = '<div class="empty">Loading lineups & commentary…</div>';
       return;
     }
-    body.innerHTML = fbMd === 'lineups' ? buildLineups(md) : buildTimeline(md);
+    ex.innerHTML =
+      '<div class="mdgrid">' +
+        '<div class="pitchwrap">' + buildPitch(md) + '</div>' +
+        '<div class="tlwrap"><div class="sectitle">Timeline / commentary</div>' + buildTimeline(md) + '</div>' +
+      '</div>';
   }
 
-  function buildLineups(md) {
-    const team = (t) => {
-      if (!t || !t.players.length) return '';
-      const starters = t.players.filter((p) => p.starter), subs = t.players.filter((p) => !p.starter);
-      let h = '<div class="sc-inning">' + esc(t.team) + (t.formation ? ' · ' + esc(t.formation) : '') + '</div>';
-      const row = (p, sub) => '<div class="lurow' + (sub?' sub':'') + '"><span class="lunum">' + esc(p.num) +
-        '</span><span class="luname">' + esc(p.name) + '</span><span class="lupos">' + esc(p.pos) + '</span></div>';
-      starters.forEach((p) => { h += row(p, false); });
-      if (subs.length) { h += '<div class="lusub">Substitutes</div>'; subs.forEach((p) => { h += row(p, true); }); }
-      return h;
-    };
-    const h = team(md.home) + team(md.away);
-    return h || '<div class="empty">Lineups not announced yet</div>';
+  function lastName(n){ const p = (n || '').trim().split(' '); return p[p.length - 1] || n || ''; }
+
+  // Compute on-pitch x/y (%) for each starter from the formation string.
+  function pitchPositions(team, isHome) {
+    const starters = (team.players || []).filter((p) => p.starter).slice(0, 11);
+    if (!starters.length) { return []; }
+    const lines = (team.formation || '').split('-').map((n) => parseInt(n)).filter((n) => n > 0);
+    const rows = [[starters[0]]]; // GK
+    let idx = 1;
+    if (lines.length) { lines.forEach((c) => { rows.push(starters.slice(idx, idx + c)); idx += c; }); }
+    if (idx < starters.length) { rows.push(starters.slice(idx)); } // leftovers
+    const n = rows.length;
+    const out = [];
+    rows.forEach((row, ri) => {
+      const frac = n > 1 ? ri / (n - 1) : 0; // 0 = GK, 1 = most attacking
+      const y = isHome ? 95 - frac * 42 : 5 + frac * 42;
+      row.forEach((p, pi) => { out.push({ p, x: ((pi + 1) / (row.length + 1)) * 100, y }); });
+    });
+    return out;
+  }
+
+  function buildPitch(md) {
+    const home = pitchPositions(md.home, true), away = pitchPositions(md.away, false);
+    if (!home.length && !away.length) { return '<div class="empty">Lineups not announced yet</div>'; }
+    const dots = (arr, cls) => arr.map((o) =>
+      '<div class="pdot ' + cls + '" style="left:' + o.x.toFixed(1) + '%;top:' + o.y.toFixed(1) + '%">' +
+      '<span class="pnum">' + esc(o.p.num) + '</span><span class="plab">' + esc(lastName(o.p.name)) + '</span></div>').join('');
+    return '<div class="pitch"><div class="pmid"></div><div class="pcirc"></div>' +
+      dots(home, 'home') + dots(away, 'away') + '</div>' +
+      '<div class="pkey">' +
+        '<span><span class="pdotmini home"></span>' + esc(md.home.team) + (md.home.formation ? ' ' + esc(md.home.formation) : '') + '</span>' +
+        '<span><span class="pdotmini away"></span>' + esc(md.away.team) + (md.away.formation ? ' ' + esc(md.away.formation) : '') + '</span>' +
+      '</div>';
   }
 
   function buildTimeline(md) {
@@ -1077,11 +1100,13 @@ export class DetailPanel {
       if (active >= matches.length) active = 0;
       checkGoals(matches);
       render();
-      // Keep a live match's open lineups/timeline fresh on each poll.
-      if (fbMd !== 'summary') {
-        const fbm = matches.find((x) => x.sport === 'football');
-        if (fbm && fbm.state === 'live' && fbm.detail.eventId) {
-          vscode.postMessage({ type: 'requestFootballMatchDetail', leagueCode: fbm.detail.leagueCode, eventId: fbm.detail.eventId });
+      // Keep an open match page's lineups/timeline fresh on each poll (live only).
+      if (matches[active] && matches[active].sport === 'football' && (fbView === 'featured' || fbSelected)) {
+        const ev = fbSelected
+          ? { id: fbSelected.eventId, lg: fbSelected.leagueCode, live: fbSelected.state === 'in' }
+          : { id: matches[active].detail.eventId, lg: matches[active].detail.leagueCode, live: matches[active].state === 'in' };
+        if (ev.live && ev.id) {
+          vscode.postMessage({ type: 'requestFootballMatchDetail', leagueCode: ev.lg, eventId: ev.id });
         }
       }
     } else if (msg.type === 'f1Map') {
@@ -1117,10 +1142,9 @@ export class DetailPanel {
     } else if (msg.type === 'footballMatchDetail') {
       if (msg.data && msg.data.eventId) { fbMdCache[msg.data.eventId] = msg.data; }
       fbMdStatus = 'ready';
-      if (matches[active] && matches[active].sport === 'football' && fbMd !== 'summary') render();
+      if (matches[active] && matches[active].sport === 'football' && (fbView === 'featured' || fbSelected)) render();
     } else if (msg.type === 'footballMatchDetailError') {
       fbMdStatus = 'error';
-      if (matches[active] && matches[active].sport === 'football' && fbMd !== 'summary') render();
     } else if (msg.type === 'f1Races') {
       f1Races = msg.data; racesStatus = 'ready';
       if (f1View === 'races') renderRaces();
