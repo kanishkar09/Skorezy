@@ -1,4 +1,11 @@
-import { Match, ScoreProvider, FootballMatchSummary } from '../core/types';
+import {
+  Match,
+  ScoreProvider,
+  FootballMatchSummary,
+  FootballStandings,
+  FootballGroup,
+  FootballStandingRow,
+} from '../core/types';
 import { fmtDateTime } from '../util/time';
 
 /**
@@ -32,6 +39,8 @@ interface FEvent {
 export class FootballProvider implements ScoreProvider {
   readonly id = 'football' as const;
   readonly emoji = '⚽';
+
+  private standingsCache?: { at: number; league: string; data: FootballStandings };
 
   constructor(
     private readonly leagues: string[] = DEFAULT_LEAGUES,
@@ -71,6 +80,56 @@ export class FootballProvider implements ScoreProvider {
     } catch (err: any) {
       return this.error(err?.message ?? 'fetch failed');
     }
+  }
+
+  /**
+   * League / tournament standings (group tables for the World Cup). Keyless
+   * ESPN. Defaults to the FIFA World Cup. Cached 5 min.
+   */
+  async getStandings(league = 'fifa.world'): Promise<FootballStandings> {
+    if (this.standingsCache && this.standingsCache.league === league && Date.now() - this.standingsCache.at < 300000) {
+      return this.standingsCache.data;
+    }
+    const res = await fetch(`https://site.api.espn.com/apis/v2/sports/soccer/${league}/standings`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const json: any = await res.json();
+    const leagueName = json.name ?? league;
+
+    const parseEntries = (entries: any[]): FootballStandingRow[] =>
+      (entries || [])
+        .map((e: any) => {
+          const stat = (n: string) => {
+            const s = (e.stats || []).find((x: any) => x.name === n);
+            return s ? String(s.displayValue ?? s.value ?? '') : '';
+          };
+          return {
+            rank: stat('rank'),
+            team: e.team?.displayName ?? e.team?.name ?? '—',
+            played: stat('gamesPlayed'),
+            win: stat('wins'),
+            draw: stat('ties'),
+            loss: stat('losses'),
+            gd: stat('pointDifferential'),
+            points: stat('points'),
+          };
+        })
+        .sort((a, b) => (parseInt(a.rank) || 99) - (parseInt(b.rank) || 99));
+
+    let groups: FootballGroup[] = [];
+    if (json.children?.length) {
+      groups = json.children.map((g: any) => ({
+        name: g.name ?? 'Group',
+        rows: parseEntries(g.standings?.entries),
+      }));
+    } else if (json.standings?.entries) {
+      groups = [{ name: leagueName, rows: parseEntries(json.standings.entries) }];
+    }
+
+    const data: FootballStandings = { league: leagueName, groups };
+    this.standingsCache = { at: Date.now(), league, data };
+    return data;
   }
 
   /** All matches across followed leagues (live first), for the match browser. */

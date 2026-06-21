@@ -135,6 +135,29 @@ export interface F1Standings {
   constructors: StandingRow[];
 }
 
+// ---- Football standings / group tables (ESPN) ----
+
+export interface FootballStandingRow {
+  rank: string;
+  team: string;
+  played: string;
+  win: string;
+  draw: string;
+  loss: string;
+  gd: string; // goal difference
+  points: string;
+}
+
+export interface FootballGroup {
+  name: string;
+  rows: FootballStandingRow[];
+}
+
+export interface FootballStandings {
+  league: string;
+  groups: FootballGroup[];
+}
+
 // ---- F1 race control feed (OpenF1) ----
 
 export interface RaceControlMessage {

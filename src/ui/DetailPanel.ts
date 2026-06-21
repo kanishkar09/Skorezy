@@ -8,12 +8,14 @@ import {
   F1RaceResult,
   F1Standings,
   RaceControlMessage,
+  FootballStandings,
 } from '../core/types';
 
 export interface PanelLoaders {
   f1Map?: () => Promise<TrackMapData>;
   cricket?: () => Promise<CricketScorecard>;
   footballMatches?: () => Promise<FootballMatchSummary[]>;
+  footballStandings?: () => Promise<FootballStandings>;
   f1Races?: () => Promise<F1RaceItem[]>;
   f1RaceResult?: (season: string, round: string) => Promise<F1RaceResult>;
   f1Standings?: () => Promise<F1Standings>;
@@ -65,6 +67,8 @@ export class DetailPanel {
           await this.sendCricket();
         } else if (msg?.type === 'requestFootballMatches') {
           await this.sendLoader(this.loaders.footballMatches, 'footballMatches');
+        } else if (msg?.type === 'requestFootballStandings') {
+          await this.sendLoader(this.loaders.footballStandings, 'footballStandings');
         } else if (msg?.type === 'requestF1Races') {
           await this.sendLoader(this.loaders.f1Races, 'f1Races');
         } else if (msg?.type === 'requestF1Standings') {
@@ -284,20 +288,24 @@ export class DetailPanel {
     body.innerHTML = buildDetail(m.detail);
   }
 
-  // ---- Football: Featured match + All Matches browser ----
-  let fbView = 'featured'; // featured | all
+  // ---- Football: Featured match + All Matches browser + Standings ----
+  let fbView = 'featured'; // featured | all | standings
   let fbMatches = null, fbStatus = 'idle', fbError = '', fbSelected = null;
+  let fbStandings = null, fbStStatus = 'idle', fbStError = '';
 
   function renderFootball(m) {
     const body = document.getElementById('body');
     body.innerHTML = '<div class="subtoggle">' +
       '<button id="fb-feat" class="' + (fbView==='featured'?'active':'') + '">⭐ Featured</button>' +
-      '<button id="fb-all" class="' + (fbView==='all'?'active':'') + '">📋 All Matches</button>' +
+      '<button id="fb-all" class="' + (fbView==='all'?'active':'') + '">📋 Matches</button>' +
+      '<button id="fb-st" class="' + (fbView==='standings'?'active':'') + '">🏆 Standings</button>' +
       '</div><div id="fbbody"></div>';
     document.getElementById('fb-feat').onclick = () => { fbView='featured'; fbSelected=null; render(); };
     document.getElementById('fb-all').onclick = () => { fbView='all'; render(); };
+    document.getElementById('fb-st').onclick = () => { fbView='standings'; render(); };
     const fb = document.getElementById('fbbody');
     if (fbView === 'featured') { fb.innerHTML = buildDetail(m.detail); return; }
+    if (fbView === 'standings') { renderFootballStandings(fb); return; }
     if (fbSelected) {
       fb.innerHTML = '<span class="backbtn" id="fb-back">← All matches</span>' + fbMatchDetail(fbSelected);
       document.getElementById('fb-back').onclick = () => { fbSelected=null; render(); };
@@ -330,6 +338,26 @@ export class DetailPanel {
       '<div class="team"><span>' + esc(e.away.name) + '</span><span class="score">' + esc(e.away.score||'') + '</span></div>' +
       '</div>';
     return html;
+  }
+
+  function renderFootballStandings(fb) {
+    if (fbStStatus === 'idle') { fbStStatus='loading'; vscode.postMessage({ type:'requestFootballStandings' }); }
+    if (fbStStatus === 'loading') { fb.innerHTML = '<div class="empty">Loading standings…</div>'; return; }
+    if (fbStStatus === 'error') { fb.innerHTML = '<div class="empty">⚠ ' + esc(fbStError) + '</div>'; return; }
+    if (!fbStandings || !fbStandings.groups.length) { fb.innerHTML = '<div class="empty">No standings available</div>'; return; }
+    let html = '<div class="maptitle">' + esc(fbStandings.league) + '</div>';
+    fbStandings.groups.forEach((g) => {
+      if (!g.rows.length) return;
+      html += '<div class="sc-inning">' + esc(g.name) + '</div>';
+      html += '<table class="results"><tr><th class="p">#</th><th>Team</th><th class="rt">P</th><th class="rt">GD</th><th class="rt">Pts</th></tr>';
+      g.rows.forEach((r) => {
+        html += '<tr><td class="p">' + esc(r.rank) + '</td><td>' + esc(r.team) + '</td>' +
+          '<td class="rt">' + esc(r.played) + '</td><td class="rt">' + esc(r.gd) + '</td>' +
+          '<td class="rt">' + esc(r.points) + '</td></tr>';
+      });
+      html += '</table>';
+    });
+    fb.innerHTML = html;
   }
 
   // Auto-refresh timers (paused when the panel is hidden).
@@ -708,6 +736,12 @@ export class DetailPanel {
     } else if (msg.type === 'footballMatchesError') {
       fbError = msg.message; fbStatus = 'error';
       if (matches[active] && matches[active].sport === 'football') render();
+    } else if (msg.type === 'footballStandings') {
+      fbStandings = msg.data; fbStStatus = 'ready';
+      if (matches[active] && matches[active].sport === 'football' && fbView === 'standings') render();
+    } else if (msg.type === 'footballStandingsError') {
+      fbStError = msg.message; fbStStatus = 'error';
+      if (matches[active] && matches[active].sport === 'football' && fbView === 'standings') render();
     } else if (msg.type === 'f1Races') {
       f1Races = msg.data; racesStatus = 'ready';
       if (f1View === 'races') renderRaces();
