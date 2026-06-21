@@ -94,8 +94,8 @@ export interface FootballMatchSummary {
   league: string;
   state: 'pre' | 'in' | 'post';
   statusText: string; // clock for live, kickoff for upcoming, "FT" for done
-  home: { name: string; abbr: string; score: string };
-  away: { name: string; abbr: string; score: string };
+  home: { name: string; abbr: string; score: string; crest?: string };
+  away: { name: string; abbr: string; score: string; crest?: string };
 }
 
 // ---- F1 race browser (Jolpica) ----

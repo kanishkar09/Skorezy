@@ -164,9 +164,14 @@ export class FootballProvider implements ScoreProvider {
       state: e.state as 'pre' | 'in' | 'post',
       statusText:
         e.state === 'in'
-          ? `${e.desc} ${e.clock}`.trim()
+          ? `${e.clock || e.desc}`.trim()
           : e.state === 'pre'
-            ? fmtDateTime(new Date(e.date))
+            ? new Date(e.date).toLocaleString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
             : 'FT',
       home: e.home,
       away: e.away,

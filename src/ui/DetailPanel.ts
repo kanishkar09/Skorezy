@@ -266,6 +266,21 @@ export class DetailPanel {
   .fbmeta { display:flex; flex-wrap:wrap; gap:6px 16px; padding:4px 2px 0; }
   .fbmeta div .l { font-size:9px; color:var(--vscode-descriptionForeground); display:block; }
   .fbmeta div .v { font-size:12px; }
+  /* Immersive matches list */
+  .fbgrp { font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--vscode-descriptionForeground);
+    margin:14px 0 6px; display:flex; align-items:center; gap:6px; }
+  .fbmrow { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--vscode-panel-border);
+    border-radius:7px; margin-bottom:6px; cursor:pointer; }
+  .fbmrow:hover { background:var(--vscode-list-hoverBackground); }
+  .fbmrow .side { flex:1; display:flex; align-items:center; gap:6px; min-width:0; font-size:12px; }
+  .fbmrow .side.away { flex-direction:row-reverse; }
+  .fbmrow .side img { width:18px; height:18px; object-fit:contain; flex-shrink:0; }
+  .fbmrow .side .tn { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fbmrow .mid { display:flex; flex-direction:column; align-items:center; min-width:54px; }
+  .fbmrow .mid .sc { font-size:14px; font-weight:700; }
+  .fbmrow .mid .vs { font-size:11px; color:var(--vscode-descriptionForeground); }
+  .fbmrow .mid .st { font-size:8.5px; color:var(--vscode-descriptionForeground); margin-top:1px; }
+  .fbmrow .mid .st.live { color:#fff; background:#c0392b; padding:0 5px; border-radius:8px; }
 </style>
 </head>
 <body>
@@ -366,29 +381,56 @@ export class DetailPanel {
     if (fbStatus === 'loading') { fb.innerHTML = '<div class="empty">Loading matches…</div>'; return; }
     if (fbStatus === 'error') { fb.innerHTML = '<div class="empty">⚠ ' + esc(fbError) + '</div>'; return; }
     if (!fbMatches || !fbMatches.length) { fb.innerHTML = '<div class="empty">No matches found</div>'; return; }
-    let html = '';
+    // Group by competition, preserving the live-first order.
+    const groups = {}, order = [];
     fbMatches.forEach((e, i) => {
-      const live = e.state === 'in' ? '<span class="livedot"></span>' : '';
-      const score = (e.home.score || e.away.score) ? (e.home.score + '-' + e.away.score) : 'v';
-      html += '<div class="listrow" data-i="' + i + '">' +
-        '<span class="lg">' + esc(e.league) + '</span>' +
-        '<span class="mt">' + live + esc(e.home.abbr) + ' ' + score + ' ' + esc(e.away.abbr) + '</span>' +
-        '<span class="st">' + esc(e.statusText) + '</span></div>';
+      if (!groups[e.league]) { groups[e.league] = []; order.push(e.league); }
+      groups[e.league].push({ e, i });
+    });
+    const crest = (t) => t.crest ? '<img src="' + esc(t.crest) + '">' : '';
+    let html = '';
+    order.forEach((lg) => {
+      const liveN = groups[lg].filter((x) => x.e.state === 'in').length;
+      html += '<div class="fbgrp">' + esc(lg) + (liveN ? ' <span class="livedot"></span>' + liveN + ' live' : '') + '</div>';
+      groups[lg].forEach(({ e, i }) => {
+        let mid;
+        if (e.state === 'in') {
+          mid = '<span class="sc">' + esc(e.home.score) + '-' + esc(e.away.score) + '</span><span class="st live">' + esc(e.statusText) + '</span>';
+        } else if (e.state === 'post') {
+          mid = '<span class="sc">' + esc(e.home.score) + '-' + esc(e.away.score) + '</span><span class="st">FT</span>';
+        } else {
+          mid = '<span class="vs">v</span><span class="st">' + esc(e.statusText) + '</span>';
+        }
+        html += '<div class="fbmrow" data-i="' + i + '">' +
+          '<div class="side">' + crest(e.home) + '<span class="tn">' + esc(e.home.name) + '</span></div>' +
+          '<div class="mid">' + mid + '</div>' +
+          '<div class="side away">' + crest(e.away) + '<span class="tn">' + esc(e.away.name) + '</span></div>' +
+          '</div>';
+      });
     });
     fb.innerHTML = html;
-    fb.querySelectorAll('.listrow').forEach((el) => {
+    fb.querySelectorAll('.fbmrow').forEach((el) => {
       el.onclick = () => { fbSelected = fbMatches[+el.getAttribute('data-i')]; render(); };
     });
   }
 
+  // Clicked match → reuse the rich hero card.
   function fbMatchDetail(e) {
     const state = e.state === 'in' ? 'live' : e.state === 'pre' ? 'upcoming' : 'idle';
-    let html = '<div class="card">' + badge(state) +
-      '<div class="sub">' + esc(e.league) + ' · ' + esc(e.statusText) + '</div>' +
-      '<div class="team"><span>' + esc(e.home.name) + '</span><span class="score">' + esc(e.home.score||'') + '</span></div>' +
-      '<div class="team"><span>' + esc(e.away.name) + '</span><span class="score">' + esc(e.away.score||'') + '</span></div>' +
-      '</div>';
-    return html;
+    const detail = {
+      state,
+      subtitle: e.league + ' · ' + e.statusText,
+      teams: [
+        { name: e.home.name, score: e.home.score || undefined, crest: e.home.crest },
+        { name: e.away.name, score: e.away.score || undefined, crest: e.away.crest },
+      ],
+      meta: [
+        { label: 'Competition', value: e.league },
+        { label: 'Status', value: e.statusText },
+      ],
+      others: [],
+    };
+    return buildFootballDetail(detail);
   }
 
   function renderFootballStandings(fb) {
