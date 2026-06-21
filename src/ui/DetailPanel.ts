@@ -313,7 +313,7 @@ export class DetailPanel {
     const body = document.getElementById('body');
     const m = matches[active];
     if (!m) { body.innerHTML = '<div class="empty">No data</div>'; return; }
-    stopAnim(); stopCricketTimer(); stopMapTimer();
+    stopAnim(); stopCricketTimer(); stopMapTimer(); stopFbMatchesTimer();
     if (m.sport === 'f1') { renderF1(m); return; }
     if (m.sport === 'cricket') { renderCricket(m); return; }
     if (m.sport === 'football') { renderFootball(m); return; }
@@ -364,6 +364,17 @@ export class DetailPanel {
   let fbView = 'featured'; // featured | all | standings
   let fbMatches = null, fbStatus = 'idle', fbError = '', fbSelected = null;
   let fbStandings = null, fbStStatus = 'idle', fbStError = '';
+  let fbMatchesTimer = null;
+  function stopFbMatchesTimer() { if (fbMatchesTimer) { clearInterval(fbMatchesTimer); fbMatchesTimer = null; } }
+  function startFbMatchesTimer() {
+    stopFbMatchesTimer();
+    fbMatchesTimer = setInterval(() => {
+      if (!document.hidden && matches[active] && matches[active].sport === 'football'
+          && fbView === 'all' && !fbSelected) {
+        vscode.postMessage({ type: 'requestFootballMatches' }); // silent refresh
+      }
+    }, 45000);
+  }
 
   function renderFootball(m) {
     const body = document.getElementById('body');
@@ -418,6 +429,7 @@ export class DetailPanel {
     fb.querySelectorAll('.fbmrow').forEach((el) => {
       el.onclick = () => { fbSelected = fbMatches[+el.getAttribute('data-i')]; render(); };
     });
+    startFbMatchesTimer(); // keep scores fresh while the list is open
   }
 
   // Clicked match → reuse the rich hero card.
