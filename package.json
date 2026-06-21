@@ -1,7 +1,7 @@
 {
   "name": "skorezy",
-  "displayName": "Skorezy — Live Sports Scores",
-  "description": "Live football, F1, and cricket scores in your VS Code status bar — with an F1 track map, standings, and match browser. Keyless, zero setup.",
+  "displayName": "Skorezy — Football, F1 & Cricket",
+  "description": "Follow football, Formula 1, and cricket from your VS Code status bar — match results, an F1 track map, championship standings, and race control. Keyless, zero setup.",
   "version": "0.2.0",
   "publisher": "kanishkar-k0907",
   "author": {
@@ -25,14 +25,11 @@
   ],
   "keywords": [
     "skorezy",
-    "cricket",
     "football",
     "soccer",
-    "f1",
     "formula 1",
-    "sports",
-    "scores",
-    "live"
+    "f1",
+    "cricket"
   ],
   "activationEvents": [
     "onStartupFinished"

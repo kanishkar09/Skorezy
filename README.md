@@ -1,6 +1,6 @@
-# 🏆 Skorezy — Live Sports Scores in VS Code
+# 🏆 Skorezy — Football, F1 & Cricket in VS Code
 
-Live **football**, **F1**, and **cricket** scores right in your status bar — with an animated **F1 track map**, **championship standings**, **live timing**, and a **match browser**. Click any score to open a rich detail panel without leaving your editor.
+Follow **football**, **Formula 1**, and **cricket** right in your status bar — with an animated **F1 track map**, **championship standings**, a **race-control feed**, and a **match browser**. Click any item to open a rich detail panel without leaving your editor.
 
 **Football and F1 work instantly — no API key, no signup.**
 

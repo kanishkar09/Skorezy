@@ -2,9 +2,9 @@
 	<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
 		<Metadata>
 			<Identity Language="en-US" Id="skorezy" Version="0.2.0" Publisher="kanishkar-k0907" />
-			<DisplayName>Skorezy — Live Sports Scores</DisplayName>
-			<Description xml:space="preserve">Live football, F1, and cricket scores in your VS Code status bar — with an F1 track map, standings, and match browser. Keyless, zero setup.</Description>
-			<Tags>skorezy,cricket,football,soccer,f1,formula 1,sports,scores,live</Tags>
+			<DisplayName>Skorezy — Football, F1 &amp; Cricket</DisplayName>
+			<Description xml:space="preserve">Follow football, Formula 1, and cricket from your VS Code status bar — match results, an F1 track map, championship standings, and race control. Keyless, zero setup.</Description>
+			<Tags>skorezy,football,soccer,formula 1,f1,cricket</Tags>
 			<Categories>Other,Visualization</Categories>
 			<GalleryFlags>Public</GalleryFlags>
 			
