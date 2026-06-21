@@ -57,6 +57,10 @@ Follow **football** and **Formula 1** right from your VS Code status bar — wit
 
 ---
 
+## Disclaimer
+
+Skorezy is an independent, open-source project and is **not affiliated with, endorsed by, or sponsored by** FIFA, Formula 1, FIFA World Cup, any football league or club, ESPN, OpenF1, Jolpica, or CricketData.org. All team names, logos, and trademarks are the property of their respective owners and are used for identification purposes only. Data is retrieved from publicly available APIs and is provided "as is" for informational use, with no guarantee of accuracy. This extension is free and non-commercial.
+
 ## License
 
 MIT © Kanishkar Kumar Krishnan
