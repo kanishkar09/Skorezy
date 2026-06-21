@@ -1,57 +1,62 @@
 # 🏆 Skorezy — Football, F1 & Cricket in VS Code
 
-Follow **football**, **Formula 1**, and **cricket** right in your status bar — with an animated **F1 track map**, **championship standings**, a **race-control feed**, and a **match browser**. Click any item to open a rich detail panel without leaving your editor.
+Follow **football** and **Formula 1** right from your VS Code status bar — with an animated **F1 track map**, **championship standings**, a **race-control feed**, **World Cup group tables**, and goal-by-goal match detail. Click any item to open a rich panel without leaving your editor.
 
-**Football and F1 work instantly — no API key, no signup.**
+> **Football and F1 work instantly — no API key, no signup.**
 
-## Features
+---
 
-- **Status bar scores** — one compact live item per sport, auto-updating
-- **⚽ Football** — live scores across major leagues + World Cup, plus an **All Matches** browser (ESPN, keyless)
-- **🏎️ F1** — next-race countdown, **driver & constructor standings**, an **animated track map** with live leaderboard (gaps + tyres), and a **past-race results browser** (OpenF1 + Jolpica, keyless)
-- **🏏 Cricket** — full live scorecard: batting, bowling, toss, venue (free CricketData.org key)
-- **Smart polling** — refreshes fast while live, backs off when idle; rate-limit caching + daily quota guards
-- **Local timezone** — all times shown in your timezone (IST, GMT, etc.)
+## ✨ Features
+
+**Status bar** — one compact item per sport, auto-updating (fast while a match is on, relaxed when idle).
+
+### ⚽ Football — *ESPN, keyless*
+- Match results across the **World Cup**, Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League & MLS
+- **Featured** match with goal scorers, venue, competition, and a kickoff countdown
+- **Matches** browser — every game across competitions, click any to view detail
+- **Standings** — full World Cup group tables (played / GD / points)
+
+### 🏎️ Formula 1 — *OpenF1 + Jolpica, keyless*
+- **Weekend schedule** — FP1/2/3, Qualifying & Race, with live session detection
+- **Driver & constructor standings**
+- **Track Map** — animated car positions with a live timing leaderboard (gaps + tyre compounds)
+- **Race Control** — flags, safety car, DRS and penalty feed
+- **Races** browser — pick any past race for full results
+
+### 🏏 Cricket — *🚧 in development*
+- Live scorecard (batting, bowling, toss, venue) — **experimental**, requires a free CricketData.org key
+- Off by default while it's being polished
+
+### Everything else
+- **Smart polling** — refreshes quickly during live events, backs off when idle; with caching + quota guards
+- **Local timezone** — all times shown in your zone (IST, GMT, …)
 - **Theme-aware** — the panel matches your VS Code theme
 
-## Sports & Data Sources
+---
+
+## 🔌 Data Sources
 
 | Sport | Source | API key |
 |---|---|---|
-| Football | [ESPN](https://www.espn.com) public scoreboards | None |
-| F1 | [OpenF1](https://openf1.org) + [Jolpica](https://github.com/jolpica/jolpica-f1) | None |
-| Cricket | [CricketData.org](https://cricketdata.org) | Free key (optional) |
+| Football | ESPN public scoreboards | None |
+| F1 | OpenF1 + Jolpica (Ergast) | None |
+| Cricket *(in development)* | CricketData.org | Free key (optional) |
 
-## Settings
+---
+
+## ⚙️ Settings
 
 | Setting | Default | Description |
 |---|---|---|
-| `skorezy.enabledSports` | `["football","f1"]` | Which sports to show (add `cricket` with a key) |
-| `skorezy.refreshIntervalSeconds` | `45` | Refresh rate while live |
-| `skorezy.idleRefreshMinutes` | `30` | Refresh rate when idle |
-| `skorezy.football.favoriteTeams` | `[]` | Teams shown first when live (e.g. `Arsenal`) |
-| `skorezy.cricket.apiKey` | `""` | Free CricketData.org key to enable cricket |
+| `skorezy.enabledSports` | `["football","f1"]` | Which sports to show (add `cricket` once you set a key) |
+| `skorezy.refreshIntervalSeconds` | `45` | Refresh rate while a match is on |
+| `skorezy.idleRefreshMinutes` | `30` | Refresh rate when nothing is on |
+| `skorezy.football.favoriteTeams` | `[]` | Teams shown first (e.g. `Arsenal`) |
+| `skorezy.cricket.apiKey` | `""` | Free CricketData.org key (enables the in-development cricket view) |
 | `skorezy.cricket.favoriteTeams` | `[]` | e.g. `India` |
 
-## Development
-
-```bash
-npm install
-npm run compile      # or: npm run watch
-# Press F5 in VS Code to launch the Extension Development Host
-```
-
-## Architecture
-
-```
-extension.ts → ScoreManager → [FootballProvider, F1Provider, CricketProvider]
-                    │
-                    ├── StatusBar   (one item per sport)
-                    └── DetailPanel (webview: tabs, track map, browsers, standings)
-```
-
-Every provider implements the same `ScoreProvider` interface, so the manager and UI contain no sport-specific code.
+---
 
 ## License
 
-MIT © Kanishkar Kumar
+MIT © Kanishkar Kumar Krishnan
