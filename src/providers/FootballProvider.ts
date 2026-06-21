@@ -148,7 +148,7 @@ export class FootballProvider implements ScoreProvider {
    * fill in with real teams/scores as the competition progresses. Cached 2 min.
    */
   async getBracket(league = 'fifa.world'): Promise<FootballBracket> {
-    if (this.bracketCache && this.bracketCache.league === league && Date.now() - this.bracketCache.at < 120000) {
+    if (this.bracketCache && this.bracketCache.league === league && Date.now() - this.bracketCache.at < 30000) {
       return this.bracketCache.data;
     }
     const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '');

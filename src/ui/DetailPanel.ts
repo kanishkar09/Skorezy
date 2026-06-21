@@ -270,6 +270,9 @@ export class DetailPanel {
   .fbmid .sc { font-size:30px; font-weight:800; letter-spacing:1px; }
   .fbmid .vs { font-size:18px; font-weight:700; color:var(--vscode-descriptionForeground); }
   .fbmid .clk { font-size:10px; color:var(--vscode-textLink-foreground); font-weight:600; }
+  .fbmid .livetimer { font-size:11px; color:#fff; background:#c0392b; padding:1px 8px; border-radius:9px;
+    display:inline-flex; align-items:center; gap:5px; margin-bottom:4px; font-weight:600; }
+  .fbmid .livetimer .ld { width:5px; height:5px; border-radius:50%; background:#fff; animation:pulse 1.2s infinite; }
   .fbmeta { display:flex; flex-wrap:wrap; gap:6px 16px; padding:4px 2px 0; }
   .fbmeta div .l { font-size:9px; color:var(--vscode-descriptionForeground); display:block; }
   .fbmeta div .v { font-size:12px; }
@@ -345,7 +348,7 @@ export class DetailPanel {
     const body = document.getElementById('body');
     const m = matches[active];
     if (!m) { body.innerHTML = '<div class="empty">No data</div>'; return; }
-    stopAnim(); stopCricketTimer(); stopMapTimer(); stopFbMatchesTimer();
+    stopAnim(); stopCricketTimer(); stopMapTimer(); stopFbMatchesTimer(); stopFbBracketTimer();
     if (m.sport === 'f1') { renderF1(m); return; }
     if (m.sport === 'cricket') { renderCricket(m); return; }
     if (m.sport === 'football') { renderFootball(m); return; }
@@ -368,11 +371,16 @@ export class DetailPanel {
     if (d.subtitle) { html += '<div class="sub">' + esc(d.subtitle) + '</div>'; }
     html += '<div class="fbhero">';
     html += '<div class="fbteam">' + crestImg(h) + '<span class="nm">' + esc(h.name) + '</span></div>';
+    const isLive = d.state === 'live';
+    const statusRow = (d.meta || []).find((m) => m.label === 'Status');
     html += '<div class="fbmid">';
+    // Live match clock shown prominently ABOVE the score.
+    if (isLive && statusRow) {
+      html += '<span class="livetimer"><span class="ld"></span>' + esc(statusRow.value) + '</span>';
+    }
     html += hasScore ? '<span class="sc">' + esc(h.score) + ' - ' + esc(a.score) + '</span>'
                      : '<span class="vs">VS</span>';
-    const statusRow = (d.meta || []).find((m) => m.label === 'Status');
-    if (statusRow) { html += '<span class="clk">' + esc(statusRow.value) + '</span>'; }
+    if (!isLive && statusRow) { html += '<span class="clk">' + esc(statusRow.value) + '</span>'; }
     html += '</div>';
     html += '<div class="fbteam">' + crestImg(a) + '<span class="nm">' + esc(a.name) + '</span></div>';
     html += '</div></div>';
@@ -397,7 +405,7 @@ export class DetailPanel {
   let fbMatches = null, fbStatus = 'idle', fbError = '', fbSelected = null;
   let fbStandings = null, fbStStatus = 'idle', fbStError = '';
   let fbBracket = null, fbBrStatus = 'idle', fbBrError = '';
-  let fbMatchesTimer = null;
+  let fbMatchesTimer = null, fbBracketTimer = null;
   function stopFbMatchesTimer() { if (fbMatchesTimer) { clearInterval(fbMatchesTimer); fbMatchesTimer = null; } }
   function startFbMatchesTimer() {
     stopFbMatchesTimer();
@@ -407,6 +415,15 @@ export class DetailPanel {
         vscode.postMessage({ type: 'requestFootballMatches' }); // silent refresh
       }
     }, 45000);
+  }
+  function stopFbBracketTimer() { if (fbBracketTimer) { clearInterval(fbBracketTimer); fbBracketTimer = null; } }
+  function startFbBracketTimer() {
+    stopFbBracketTimer();
+    fbBracketTimer = setInterval(() => {
+      if (!document.hidden && matches[active] && matches[active].sport === 'football' && fbView === 'bracket') {
+        vscode.postMessage({ type: 'requestFootballBracket' }); // silent refresh — bracket fills in live
+      }
+    }, 60000);
   }
 
   function renderFootball(m) {
@@ -508,6 +525,7 @@ export class DetailPanel {
     });
     html += '</div></div>';
     fb.innerHTML = html;
+    startFbBracketTimer(); // keep the bracket fresh as knockout results come in
   }
 
   function renderFootballStandings(fb) {
