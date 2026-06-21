@@ -32,6 +32,8 @@ interface FEvent {
   desc: string;
   clock: string;
   date: number;
+  venue: string;
+  scorers: { time: string; name: string; note: string }[];
   home: { name: string; abbr: string; score: string };
   away: { name: string; abbr: string; score: string };
 }
@@ -65,10 +67,15 @@ export class FootballProvider implements ScoreProvider {
       const upcoming = events.filter((e) => e.state === 'pre').sort((a, b) => a.date - b.date);
       const recent = events.filter((e) => e.state === 'post').sort((a, b) => b.date - a.date);
 
+      // Prefer a favourite's upcoming match only if it's soon (<48h); otherwise
+      // show the soonest match overall (so the World Cup isn't hidden behind a
+      // favourite's fixture weeks away).
+      const favUpcoming = this.fav(upcoming);
+      const soonFav = favUpcoming && favUpcoming.date - Date.now() < 48 * 60 * 60 * 1000;
       const chosen =
         this.fav(live) ??
         live[0] ??
-        this.fav(upcoming) ??
+        (soonFav ? favUpcoming : undefined) ??
         upcoming[0] ??
         this.fav(recent) ??
         recent[0];
@@ -183,12 +190,23 @@ export class FootballProvider implements ScoreProvider {
     const cs: any[] = comp.competitors ?? [];
     const home = cs.find((c) => c.homeAway === 'home') ?? cs[0] ?? {};
     const away = cs.find((c) => c.homeAway === 'away') ?? cs[1] ?? {};
+    const scorers = (comp.details ?? [])
+      .filter((d: any) => /goal/i.test(d.type?.text ?? ''))
+      .map((d: any) => {
+        const text = d.type?.text ?? '';
+        const note = /own/i.test(text) ? '(OG)' : /penalty|spot/i.test(text) ? '(pen)' : '';
+        const name =
+          (d.athletesInvolved ?? []).map((a: any) => a.displayName).filter(Boolean).join(', ') || 'Goal';
+        return { time: d.clock?.displayValue ?? '', name, note };
+      });
     return {
       league,
       state: e.status?.type?.state ?? 'pre',
       desc: e.status?.type?.description ?? '',
       clock: e.status?.displayClock ?? '',
       date: new Date(e.date).getTime(),
+      venue: comp.venue?.fullName ?? '',
+      scorers,
       home: {
         name: home.team?.displayName ?? 'Home',
         abbr: home.team?.abbreviation ?? 'HOM',
@@ -228,13 +246,29 @@ export class FootballProvider implements ScoreProvider {
         ? `${e.home.abbr} v ${e.away.abbr} ${day}`
         : `${e.home.abbr} ${e.home.score}-${e.away.score} ${e.away.abbr} FT`;
 
-    const others = live
-      .filter((x) => x !== e)
-      .slice(0, 4)
-      .map((x) => ({
-        left: `${x.home.abbr} v ${x.away.abbr}`,
-        right: `${x.home.score}-${x.away.score} ${x.clock}`.trim(),
-      }));
+    // Prefer goal scorers in the "others" section; fall back to other live games.
+    const goals = e.scorers ?? [];
+    const others = goals.length
+      ? goals.map((g) => ({ left: `${g.time}  ${g.name}`.trim(), right: g.note }))
+      : live
+          .filter((x) => x !== e)
+          .slice(0, 4)
+          .map((x) => ({
+            left: `${x.home.abbr} v ${x.away.abbr}`,
+            right: `${x.home.score}-${x.away.score} ${x.clock}`.trim(),
+          }));
+    const othersTitle = goals.length ? 'Goals' : 'Other live matches';
+
+    const meta = [
+      { label: 'Competition', value: e.league },
+      { label: 'Status', value: isLive ? `${e.desc} ${e.clock}`.trim() : isPre ? 'Upcoming' : e.desc, highlight: isLive },
+    ];
+    if (isPre) {
+      meta.push({ label: 'Kicks off in', value: this.countdown(e.date), highlight: true });
+    }
+    if (e.venue) {
+      meta.push({ label: 'Venue', value: e.venue, highlight: false });
+    }
 
     const state = isLive ? 'live' : isPre ? 'upcoming' : 'idle';
     return {
@@ -246,16 +280,35 @@ export class FootballProvider implements ScoreProvider {
       detail: {
         sport: 'football',
         state,
-        title: e.league,
-        subtitle: isPre ? `Kick-off ${fmtDateTime(new Date(e.date))}` : e.desc,
+        title: `${e.home.name} vs ${e.away.name}`,
+        subtitle: isPre ? `${e.league} · ${fmtDateTime(new Date(e.date))}` : `${e.league} · ${e.desc} ${isLive ? e.clock : ''}`.trim(),
         teams: [
           { name: e.home.name, score: e.home.score || undefined },
-          { name: e.away.name, score: e.away.score || undefined },
+          { name: e.away.name, score: e.away.score || undefined, dim: e.state === 'post' && Number(e.away.score) < Number(e.home.score) },
         ],
-        meta: [{ label: 'Status', value: isLive ? `${e.desc} ${e.clock}`.trim() : e.desc, highlight: isLive }],
+        meta,
         others,
+        othersTitle,
       },
     };
+  }
+
+  /** Human countdown to a future kickoff (epoch ms). */
+  private countdown(target: number): string {
+    const ms = target - Date.now();
+    if (ms <= 0) {
+      return 'soon';
+    }
+    const days = Math.floor(ms / 86400000);
+    const hours = Math.floor((ms % 86400000) / 3600000);
+    const mins = Math.floor((ms % 3600000) / 60000);
+    if (days > 0) {
+      return `${days}d ${hours}h`;
+    }
+    if (hours > 0) {
+      return `${hours}h ${mins}m`;
+    }
+    return `${mins}m`;
   }
 
   private idle(): Match {
