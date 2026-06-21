@@ -8,6 +8,10 @@ import {
   FootballBracket,
   BracketRound,
   BracketMatch,
+  FootballMatchDetail,
+  TeamLineup,
+  LineupPlayer,
+  TimelineItem,
 } from '../core/types';
 import { fmtDateTime } from '../util/time';
 
@@ -30,6 +34,8 @@ const DEFAULT_LEAGUES = [
 ];
 
 interface FEvent {
+  id: string;
+  leagueCode: string;
   league: string;
   state: string; // 'pre' | 'in' | 'post'
   desc: string;
@@ -48,6 +54,7 @@ export class FootballProvider implements ScoreProvider {
 
   private standingsCache?: { at: number; league: string; data: FootballStandings };
   private bracketCache?: { at: number; league: string; data: FootballBracket };
+  private mdCache: Record<string, { at: number; data: FootballMatchDetail }> = {};
 
   constructor(
     private readonly leagues: string[] = DEFAULT_LEAGUES,
@@ -231,6 +238,8 @@ export class FootballProvider implements ScoreProvider {
                 minute: '2-digit',
               })
             : 'FT',
+      eventId: e.id,
+      leagueCode: e.leagueCode,
       home: e.home,
       away: e.away,
     }));
@@ -245,10 +254,10 @@ export class FootballProvider implements ScoreProvider {
     }
     const json: any = await res.json();
     const leagueName = json.leagues?.[0]?.abbreviation ?? code;
-    return (json.events || []).map((e: any) => this.parse(e, leagueName));
+    return (json.events || []).map((e: any) => this.parse(e, leagueName, code));
   }
 
-  private parse(e: any, league: string): FEvent {
+  private parse(e: any, league: string, leagueCode: string): FEvent {
     const comp = e.competitions?.[0] ?? {};
     const cs: any[] = comp.competitors ?? [];
     const home = cs.find((c) => c.homeAway === 'home') ?? cs[0] ?? {};
@@ -263,6 +272,8 @@ export class FootballProvider implements ScoreProvider {
         return { time: d.clock?.displayValue ?? '', name, note };
       });
     return {
+      id: String(e.id ?? ''),
+      leagueCode,
       league,
       state: e.status?.type?.state ?? 'pre',
       desc: e.status?.type?.description ?? '',
@@ -355,8 +366,47 @@ export class FootballProvider implements ScoreProvider {
         countdownTo: isPre ? e.date : undefined,
         // Tick mm:ss only for a cleanly-running half (skip stoppage "+" and halftime).
         liveClockSec: isLive && e.clockSec > 0 && !e.clock.includes('+') ? e.clockSec : undefined,
+        eventId: e.id || undefined,
+        leagueCode: e.leagueCode || undefined,
       },
     };
+  }
+
+  /** Lineups + commentary timeline for a single match (ESPN summary). Cached 60s. */
+  async getMatchDetail(leagueCode: string, eventId: string): Promise<FootballMatchDetail> {
+    const cached = this.mdCache[eventId];
+    if (cached && Date.now() - cached.at < 60000) {
+      return cached.data;
+    }
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueCode}/summary?event=${eventId}`
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const json: any = await res.json();
+    const rosters: any[] = json.rosters || [];
+    const mkTeam = (r: any): TeamLineup => ({
+      team: r?.team?.displayName ?? r?.team?.name ?? '',
+      formation: r?.formation ?? '',
+      players: (r?.roster || []).map(
+        (p: any): LineupPlayer => ({
+          num: String(p.jersey ?? ''),
+          name: p.athlete?.displayName ?? '',
+          pos: p.position?.abbreviation ?? '',
+          starter: !!p.starter,
+        })
+      ),
+    });
+    const home = mkTeam(rosters.find((r) => r.homeAway === 'home') ?? rosters[0] ?? {});
+    const away = mkTeam(rosters.find((r) => r.homeAway === 'away') ?? rosters[1] ?? {});
+    const timeline: TimelineItem[] = (json.commentary || []).map((c: any) => ({
+      time: c.time?.displayValue ?? '',
+      text: c.text ?? '',
+    }));
+    const data: FootballMatchDetail = { eventId, home, away, timeline };
+    this.mdCache[eventId] = { at: Date.now(), data };
+    return data;
   }
 
   /** Human countdown to a future kickoff (epoch ms). */

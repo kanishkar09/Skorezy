@@ -40,6 +40,8 @@ export interface DetailView {
   othersTitle?: string; // section heading for `others` (default "Also happening")
   countdownTo?: number; // epoch ms — panel shows a live-ticking countdown to this
   liveClockSec?: number; // live match elapsed seconds — panel ticks it as mm:ss
+  eventId?: string; // ESPN event id (football) — for lazy lineup/timeline
+  leagueCode?: string; // ESPN league code (football) — for lazy lineup/timeline
 }
 
 /** The unit every provider returns. */
@@ -96,8 +98,37 @@ export interface FootballMatchSummary {
   league: string;
   state: 'pre' | 'in' | 'post';
   statusText: string; // clock for live, kickoff for upcoming, "FT" for done
+  eventId: string;
+  leagueCode: string;
   home: { name: string; abbr: string; score: string; crest?: string };
   away: { name: string; abbr: string; score: string; crest?: string };
+}
+
+// ---- Football match detail: lineups + timeline (ESPN summary) ----
+
+export interface LineupPlayer {
+  num: string;
+  name: string;
+  pos: string;
+  starter: boolean;
+}
+
+export interface TeamLineup {
+  team: string;
+  formation: string;
+  players: LineupPlayer[];
+}
+
+export interface TimelineItem {
+  time: string;
+  text: string;
+}
+
+export interface FootballMatchDetail {
+  eventId: string;
+  home: TeamLineup;
+  away: TeamLineup;
+  timeline: TimelineItem[];
 }
 
 // ---- F1 race browser (Jolpica) ----

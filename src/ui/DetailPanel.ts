@@ -10,6 +10,7 @@ import {
   RaceControlMessage,
   FootballStandings,
   FootballBracket,
+  FootballMatchDetail,
 } from '../core/types';
 
 export interface PanelLoaders {
@@ -18,6 +19,7 @@ export interface PanelLoaders {
   footballMatches?: () => Promise<FootballMatchSummary[]>;
   footballStandings?: () => Promise<FootballStandings>;
   footballBracket?: () => Promise<FootballBracket>;
+  footballMatchDetail?: (leagueCode: string, eventId: string) => Promise<FootballMatchDetail>;
   f1Races?: () => Promise<F1RaceItem[]>;
   f1RaceResult?: (season: string, round: string) => Promise<F1RaceResult>;
   f1Standings?: () => Promise<F1Standings>;
@@ -74,6 +76,13 @@ export class DetailPanel {
           await this.sendLoader(this.loaders.footballStandings, 'footballStandings');
         } else if (msg?.type === 'requestFootballBracket') {
           await this.sendLoader(this.loaders.footballBracket, 'footballBracket');
+        } else if (msg?.type === 'requestFootballMatchDetail') {
+          await this.sendLoader(
+            this.loaders.footballMatchDetail
+              ? () => this.loaders.footballMatchDetail!(msg.leagueCode, msg.eventId)
+              : undefined,
+            'footballMatchDetail'
+          );
         } else if (msg?.type === 'requestF1Races') {
           await this.sendLoader(this.loaders.f1Races, 'f1Races');
         } else if (msg?.type === 'requestF1Standings') {
@@ -273,6 +282,32 @@ export class DetailPanel {
   .fbmid .livetimer { font-size:11px; color:#fff; background:#c0392b; padding:1px 8px; border-radius:9px;
     display:inline-flex; align-items:center; gap:5px; margin-bottom:4px; font-weight:600; }
   .fbmid .livetimer .ld { width:5px; height:5px; border-radius:50%; background:#fff; animation:pulse 1.2s infinite; }
+  /* Match detail sub-toggle + lineups + timeline */
+  .subtoggle.sub2 button { font-size:11px; padding:5px 6px; }
+  .lurow { display:flex; align-items:center; gap:8px; padding:3px 4px; font-size:11px;
+    border-bottom:1px solid var(--vscode-panel-border); }
+  .lurow.sub { opacity:.7; }
+  .lurow .lunum { width:20px; text-align:right; color:var(--vscode-descriptionForeground); }
+  .lurow .luname { flex:1; }
+  .lurow .lupos { font-size:9px; color:var(--vscode-descriptionForeground); }
+  .lusub { font-size:10px; text-transform:uppercase; letter-spacing:.5px;
+    color:var(--vscode-descriptionForeground); margin:8px 0 4px; }
+  .tlrow { display:flex; gap:8px; padding:5px 2px; font-size:11px; border-bottom:1px solid var(--vscode-panel-border); }
+  .tlrow .tlt { width:30px; flex-shrink:0; color:var(--vscode-textLink-foreground); font-variant-numeric:tabular-nums; }
+  .tlrow .tltext { flex:1; line-height:1.35; }
+  /* Goal celebration */
+  .confetti-piece { position:fixed; top:-12px; width:8px; height:14px; border-radius:2px; z-index:9999;
+    pointer-events:none; animation:ccfall 1.9s linear forwards; }
+  @keyframes ccfall { 0%{ transform:translateY(0) rotate(0); opacity:1; } 100%{ transform:translateY(115vh) rotate(560deg); opacity:.15; } }
+  .goalbanner { position:fixed; top:26%; left:50%; z-index:10000; font-size:30px; font-weight:800; color:#fff;
+    text-shadow:0 2px 14px rgba(0,0,0,.65); pointer-events:none; white-space:nowrap; animation:gpop 1.9s ease forwards; }
+  @keyframes gpop {
+    0%{ opacity:0; transform:translateX(-50%) scale(0.4); }
+    15%{ opacity:1; transform:translateX(-50%) scale(1.18); }
+    32%{ transform:translateX(-50%) scale(1); }
+    80%{ opacity:1; transform:translateX(-50%) scale(1) translateY(0); }
+    100%{ opacity:0; transform:translateX(-50%) scale(1) translateY(-24px); }
+  }
   .fbmeta { display:flex; flex-wrap:wrap; gap:6px 16px; padding:4px 2px 0; }
   .fbmeta div .l { font-size:9px; color:var(--vscode-descriptionForeground); display:block; }
   .fbmeta div .v { font-size:12px; }
@@ -406,6 +441,77 @@ export class DetailPanel {
   let fbMatches = null, fbStatus = 'idle', fbError = '', fbSelected = null;
   let fbStandings = null, fbStStatus = 'idle', fbStError = '';
   let fbBracket = null, fbBrStatus = 'idle', fbBrError = '';
+  let fbMd = 'summary'; // summary | lineups | timeline
+  let fbMdCache = {}, fbMdStatus = 'idle';
+
+  function fbSummaryToDetail(e) {
+    const state = e.state === 'in' ? 'live' : e.state === 'pre' ? 'upcoming' : 'idle';
+    return {
+      state,
+      subtitle: e.league + ' · ' + e.statusText,
+      teams: [
+        { name: e.home.name, score: e.home.score || undefined, crest: e.home.crest },
+        { name: e.away.name, score: e.away.score || undefined, crest: e.away.crest },
+      ],
+      meta: [{ label: 'Competition', value: e.league }, { label: 'Status', value: e.statusText }],
+      others: [],
+      eventId: e.eventId,
+      leagueCode: e.leagueCode,
+    };
+  }
+
+  // Match detail with Summary / Lineups / Timeline sub-views.
+  function renderFbMatch(d, fb, backLabel) {
+    let html = '';
+    if (backLabel) { html += '<span class="backbtn" id="fb-back">← ' + esc(backLabel) + '</span>'; }
+    if (d.eventId) {
+      html += '<div class="subtoggle sub2">' +
+        '<button id="md-sum" class="' + (fbMd==='summary'?'active':'') + '">Summary</button>' +
+        '<button id="md-lu" class="' + (fbMd==='lineups'?'active':'') + '">Lineups</button>' +
+        '<button id="md-tl" class="' + (fbMd==='timeline'?'active':'') + '">Timeline</button></div>';
+    }
+    html += '<div id="mdbody"></div>';
+    fb.innerHTML = html;
+    if (backLabel) { document.getElementById('fb-back').onclick = () => { fbSelected=null; fbMd='summary'; render(); }; }
+    if (d.eventId) {
+      document.getElementById('md-sum').onclick = () => { fbMd='summary'; renderFbMatch(d, fb, backLabel); };
+      document.getElementById('md-lu').onclick = () => { fbMd='lineups'; renderFbMatch(d, fb, backLabel); };
+      document.getElementById('md-tl').onclick = () => { fbMd='timeline'; renderFbMatch(d, fb, backLabel); };
+    }
+    const body = document.getElementById('mdbody');
+    if (!d.eventId || fbMd === 'summary') { body.innerHTML = buildFootballDetail(d); return; }
+    const md = fbMdCache[d.eventId];
+    if (!md) {
+      if (fbMdStatus !== 'loading') { fbMdStatus='loading'; vscode.postMessage({ type:'requestFootballMatchDetail', leagueCode:d.leagueCode, eventId:d.eventId }); }
+      body.innerHTML = '<div class="empty">Loading ' + esc(fbMd) + '…</div>';
+      return;
+    }
+    body.innerHTML = fbMd === 'lineups' ? buildLineups(md) : buildTimeline(md);
+  }
+
+  function buildLineups(md) {
+    const team = (t) => {
+      if (!t || !t.players.length) return '';
+      const starters = t.players.filter((p) => p.starter), subs = t.players.filter((p) => !p.starter);
+      let h = '<div class="sc-inning">' + esc(t.team) + (t.formation ? ' · ' + esc(t.formation) : '') + '</div>';
+      const row = (p, sub) => '<div class="lurow' + (sub?' sub':'') + '"><span class="lunum">' + esc(p.num) +
+        '</span><span class="luname">' + esc(p.name) + '</span><span class="lupos">' + esc(p.pos) + '</span></div>';
+      starters.forEach((p) => { h += row(p, false); });
+      if (subs.length) { h += '<div class="lusub">Substitutes</div>'; subs.forEach((p) => { h += row(p, true); }); }
+      return h;
+    };
+    const h = team(md.home) + team(md.away);
+    return h || '<div class="empty">Lineups not announced yet</div>';
+  }
+
+  function buildTimeline(md) {
+    if (!md.timeline || !md.timeline.length) { return '<div class="empty">No commentary yet</div>'; }
+    let h = '';
+    md.timeline.slice().reverse().forEach((t) => {
+      h += '<div class="tlrow"><span class="tlt">' + esc(t.time) + '</span><span class="tltext">' + esc(t.text) + '</span></div>';
+    });
+    return h;
+  }
   let fbMatchesTimer = null, fbBracketTimer = null;
   function stopFbMatchesTimer() { if (fbMatchesTimer) { clearInterval(fbMatchesTimer); fbMatchesTimer = null; } }
   function startFbMatchesTimer() {
@@ -440,14 +546,10 @@ export class DetailPanel {
     document.getElementById('fb-st').onclick = () => { fbView='standings'; render(); };
     document.getElementById('fb-br').onclick = () => { fbView='bracket'; render(); };
     const fb = document.getElementById('fbbody');
-    if (fbView === 'featured') { fb.innerHTML = buildFootballDetail(m.detail); return; }
+    if (fbView === 'featured') { renderFbMatch(m.detail, fb); return; }
     if (fbView === 'standings') { renderFootballStandings(fb); return; }
     if (fbView === 'bracket') { renderFootballBracket(fb); return; }
-    if (fbSelected) {
-      fb.innerHTML = '<span class="backbtn" id="fb-back">← All matches</span>' + fbMatchDetail(fbSelected);
-      document.getElementById('fb-back').onclick = () => { fbSelected=null; render(); };
-      return;
-    }
+    if (fbSelected) { renderFbMatch(fbSummaryToDetail(fbSelected), fb, 'All matches'); return; }
     if (fbStatus === 'idle') { fbStatus='loading'; vscode.postMessage({ type:'requestFootballMatches' }); }
     if (fbStatus === 'loading') { fb.innerHTML = '<div class="empty">Loading matches…</div>'; return; }
     if (fbStatus === 'error') { fb.innerHTML = '<div class="empty">⚠ ' + esc(fbError) + '</div>'; return; }
@@ -938,12 +1040,50 @@ export class DetailPanel {
   }
   setInterval(tickCountdowns, 1000);
 
+  // ---- Goal celebration ----
+  function celebrate(text){
+    const b = document.createElement('div');
+    b.className = 'goalbanner'; b.textContent = text;
+    document.body.appendChild(b);
+    setTimeout(() => b.remove(), 1900);
+    const colors = ['#e0383b','#ffd24a','#4ec9b0','#2980b9','#27ae60','#ffffff','#f59e0b'];
+    for (let i = 0; i < 44; i++) {
+      const c = document.createElement('div');
+      c.className = 'confetti-piece';
+      c.style.left = (Math.random() * 100) + '%';
+      c.style.background = colors[i % colors.length];
+      c.style.animationDelay = (Math.random() * 0.5) + 's';
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), 2500);
+    }
+  }
+  let lastGoals = {};
+  function checkGoals(ms){
+    const fb = (ms || []).find((x) => x.sport === 'football');
+    if (!fb || fb.state !== 'live') return;
+    const t = fb.detail.teams || [];
+    const total = (parseInt(t[0] && t[0].score) || 0) + (parseInt(t[1] && t[1].score) || 0);
+    const key = fb.detail.title || 'fb';
+    if (lastGoals[key] !== undefined && total > lastGoals[key] && !document.hidden) {
+      celebrate('⚽ GOAL!');
+    }
+    lastGoals[key] = total;
+  }
+
   window.addEventListener('message', e => {
     const msg = e.data || {};
     if (msg.type === 'update') {
       matches = msg.matches || [];
       if (active >= matches.length) active = 0;
+      checkGoals(matches);
       render();
+      // Keep a live match's open lineups/timeline fresh on each poll.
+      if (fbMd !== 'summary') {
+        const fbm = matches.find((x) => x.sport === 'football');
+        if (fbm && fbm.state === 'live' && fbm.detail.eventId) {
+          vscode.postMessage({ type: 'requestFootballMatchDetail', leagueCode: fbm.detail.leagueCode, eventId: fbm.detail.eventId });
+        }
+      }
     } else if (msg.type === 'f1Map') {
       mapData = msg.data; mapStatus = 'ready';
       if (f1View === 'map') renderMap();
@@ -974,6 +1114,13 @@ export class DetailPanel {
     } else if (msg.type === 'footballBracketError') {
       fbBrError = msg.message; fbBrStatus = 'error';
       if (matches[active] && matches[active].sport === 'football' && fbView === 'bracket') render();
+    } else if (msg.type === 'footballMatchDetail') {
+      if (msg.data && msg.data.eventId) { fbMdCache[msg.data.eventId] = msg.data; }
+      fbMdStatus = 'ready';
+      if (matches[active] && matches[active].sport === 'football' && fbMd !== 'summary') render();
+    } else if (msg.type === 'footballMatchDetailError') {
+      fbMdStatus = 'error';
+      if (matches[active] && matches[active].sport === 'football' && fbMd !== 'summary') render();
     } else if (msg.type === 'f1Races') {
       f1Races = msg.data; racesStatus = 'ready';
       if (f1View === 'races') renderRaces();

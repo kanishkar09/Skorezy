@@ -2,7 +2,7 @@
   "name": "skorezy",
   "displayName": "Skorezy — Football, F1 & Cricket",
   "description": "Follow football and Formula 1 in your VS Code status bar — match results, an F1 track map, standings, and a race-control feed. Cricket support in development. No API key, no signup.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "kanishkar-k0907",
   "author": {
     "name": "Kanishkar Kumar Krishnan"
