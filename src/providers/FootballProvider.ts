@@ -5,6 +5,9 @@ import {
   FootballStandings,
   FootballGroup,
   FootballStandingRow,
+  FootballBracket,
+  BracketRound,
+  BracketMatch,
 } from '../core/types';
 import { fmtDateTime } from '../util/time';
 
@@ -43,6 +46,7 @@ export class FootballProvider implements ScoreProvider {
   readonly emoji = '⚽';
 
   private standingsCache?: { at: number; league: string; data: FootballStandings };
+  private bracketCache?: { at: number; league: string; data: FootballBracket };
 
   constructor(
     private readonly leagues: string[] = DEFAULT_LEAGUES,
@@ -136,6 +140,59 @@ export class FootballProvider implements ScoreProvider {
 
     const data: FootballStandings = { league: leagueName, groups };
     this.standingsCache = { at: Date.now(), league, data };
+    return data;
+  }
+
+  /**
+   * Knockout bracket for a tournament (defaults to the FIFA World Cup). Rounds
+   * fill in with real teams/scores as the competition progresses. Cached 2 min.
+   */
+  async getBracket(league = 'fifa.world'): Promise<FootballBracket> {
+    if (this.bracketCache && this.bracketCache.league === league && Date.now() - this.bracketCache.at < 120000) {
+      return this.bracketCache.data;
+    }
+    const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '');
+    const now = Date.now();
+    const start = fmt(new Date(now - 3 * 86400000));
+    const end = fmt(new Date(now + 60 * 86400000));
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard?dates=${start}-${end}`
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const json: any = await res.json();
+    const events: any[] = json.events || [];
+
+    const ORDER: [string, string][] = [
+      ['round-of-32', 'Round of 32'],
+      ['round-of-16', 'Round of 16'],
+      ['quarterfinals', 'Quarterfinals'],
+      ['semifinals', 'Semifinals'],
+      ['final', 'Final'],
+      ['3rd-place-match', '3rd Place'],
+    ];
+
+    const toTeam = (c: any) => ({
+      name: c?.team?.displayName ?? c?.team?.name ?? 'TBD',
+      crest: c?.team?.logo ?? '',
+      score: c?.score ?? '',
+      winner: !!c?.winner,
+    });
+    const toMatch = (e: any): BracketMatch => {
+      const cs: any[] = e.competitions?.[0]?.competitors ?? [];
+      const home = cs.find((c) => c.homeAway === 'home') ?? cs[0] ?? {};
+      const away = cs.find((c) => c.homeAway === 'away') ?? cs[1] ?? {};
+      return { home: toTeam(home), away: toTeam(away), state: e.status?.type?.state ?? 'pre' };
+    };
+
+    const rounds: BracketRound[] = ORDER.map(([slug, name]) => ({
+      name,
+      matches: events.filter((e) => e.season?.slug === slug).map(toMatch),
+    })).filter((r) => r.matches.length);
+
+    const data: FootballBracket = { league: json.leagues?.[0]?.name ?? league, rounds };
+    this.bracketCache = { at: Date.now(), league, data };
     return data;
   }
 

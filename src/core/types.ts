@@ -160,6 +160,31 @@ export interface FootballStandings {
   groups: FootballGroup[];
 }
 
+// ---- Football knockout bracket (ESPN) ----
+
+export interface BracketTeam {
+  name: string;
+  crest: string;
+  score: string;
+  winner: boolean;
+}
+
+export interface BracketMatch {
+  home: BracketTeam;
+  away: BracketTeam;
+  state: string; // pre | in | post
+}
+
+export interface BracketRound {
+  name: string;
+  matches: BracketMatch[];
+}
+
+export interface FootballBracket {
+  league: string;
+  rounds: BracketRound[];
+}
+
 // ---- F1 race control feed (OpenF1) ----
 
 export interface RaceControlMessage {

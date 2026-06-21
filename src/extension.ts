@@ -41,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
         cricket: cricketProvider ? () => cricketProvider!.getScorecard() : undefined,
         footballMatches: footballProvider ? () => footballProvider!.getMatches() : undefined,
         footballStandings: footballProvider ? () => footballProvider!.getStandings() : undefined,
+        footballBracket: footballProvider ? () => footballProvider!.getBracket() : undefined,
         f1Races: f1Provider ? () => f1Provider!.getRaces() : undefined,
         f1RaceResult: f1Provider
           ? (season: string, round: string) => f1Provider!.getRaceResult(season, round)

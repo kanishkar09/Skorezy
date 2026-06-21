@@ -9,6 +9,7 @@ import {
   F1Standings,
   RaceControlMessage,
   FootballStandings,
+  FootballBracket,
 } from '../core/types';
 
 export interface PanelLoaders {
@@ -16,6 +17,7 @@ export interface PanelLoaders {
   cricket?: () => Promise<CricketScorecard>;
   footballMatches?: () => Promise<FootballMatchSummary[]>;
   footballStandings?: () => Promise<FootballStandings>;
+  footballBracket?: () => Promise<FootballBracket>;
   f1Races?: () => Promise<F1RaceItem[]>;
   f1RaceResult?: (season: string, round: string) => Promise<F1RaceResult>;
   f1Standings?: () => Promise<F1Standings>;
@@ -70,6 +72,8 @@ export class DetailPanel {
           await this.sendLoader(this.loaders.footballMatches, 'footballMatches');
         } else if (msg?.type === 'requestFootballStandings') {
           await this.sendLoader(this.loaders.footballStandings, 'footballStandings');
+        } else if (msg?.type === 'requestFootballBracket') {
+          await this.sendLoader(this.loaders.footballBracket, 'footballBracket');
         } else if (msg?.type === 'requestF1Races') {
           await this.sendLoader(this.loaders.f1Races, 'f1Races');
         } else if (msg?.type === 'requestF1Standings') {
@@ -284,6 +288,34 @@ export class DetailPanel {
   .fbmrow .mid .vs { font-size:11px; color:var(--vscode-descriptionForeground); }
   .fbmrow .mid .st { font-size:8.5px; color:var(--vscode-descriptionForeground); margin-top:1px; }
   .fbmrow .mid .st.live { color:#fff; background:#c0392b; padding:0 5px; border-radius:8px; }
+  /* Knockout bracket with connector lines */
+  .bracketwrap { overflow-x:auto; padding-bottom:10px; }
+  .bracket { display:flex; min-width:max-content; align-items:stretch; }
+  .bround { display:flex; flex-direction:column; width:150px; margin-right:24px; }
+  .bround:last-child { margin-right:0; }
+  .bround .brt { font-size:10px; text-transform:uppercase; letter-spacing:.5px;
+    color:var(--vscode-descriptionForeground); text-align:center; margin-bottom:6px; }
+  .bslots { display:flex; flex-direction:column; justify-content:space-around; flex:1; }
+  .bslot { flex:1; display:flex; align-items:center; position:relative; }
+  .btie { width:150px; position:relative; background:var(--vscode-editorWidget-background);
+    border:1px solid var(--vscode-panel-border); border-radius:6px; overflow:hidden; }
+  /* right stub out of each match (not the last round) */
+  .bround:not(:last-child) .bslot::after { content:''; position:absolute; left:100%; top:50%;
+    width:12px; height:2px; background:var(--vscode-panel-border); }
+  /* vertical line joining each pair (odd slot, at mid-gap) */
+  .bround:not(:last-child) .bslot:nth-child(odd):not(:last-child)::before { content:''; position:absolute;
+    left:calc(100% + 12px); top:50%; width:2px; height:100%; background:var(--vscode-panel-border); }
+  /* left stub into each match (not the first round) */
+  .bround:not(:first-child) .btie::before { content:''; position:absolute; right:100%; top:50%;
+    width:12px; height:2px; background:var(--vscode-panel-border); }
+  .brow { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:5px 8px; font-size:11px; }
+  .brow + .brow { border-top:1px solid var(--vscode-panel-border); }
+  .brow.win { color:var(--vscode-foreground); font-weight:600; }
+  .brow.win .bs { color:#4ec9b0; }
+  .brow .bt { display:flex; align-items:center; gap:5px; overflow:hidden; white-space:nowrap; }
+  .brow .bt img { width:16px; height:16px; object-fit:contain; flex-shrink:0; }
+  .brow .bn { overflow:hidden; text-overflow:ellipsis; }
+  .brow .bs { color:var(--vscode-descriptionForeground); flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -364,6 +396,7 @@ export class DetailPanel {
   let fbView = 'featured'; // featured | all | standings
   let fbMatches = null, fbStatus = 'idle', fbError = '', fbSelected = null;
   let fbStandings = null, fbStStatus = 'idle', fbStError = '';
+  let fbBracket = null, fbBrStatus = 'idle', fbBrError = '';
   let fbMatchesTimer = null;
   function stopFbMatchesTimer() { if (fbMatchesTimer) { clearInterval(fbMatchesTimer); fbMatchesTimer = null; } }
   function startFbMatchesTimer() {
@@ -381,14 +414,17 @@ export class DetailPanel {
     body.innerHTML = '<div class="subtoggle">' +
       '<button id="fb-feat" class="' + (fbView==='featured'?'active':'') + '">⭐ Featured</button>' +
       '<button id="fb-all" class="' + (fbView==='all'?'active':'') + '">📋 Matches</button>' +
-      '<button id="fb-st" class="' + (fbView==='standings'?'active':'') + '">🏆 Standings</button>' +
+      '<button id="fb-st" class="' + (fbView==='standings'?'active':'') + '">📊 Table</button>' +
+      '<button id="fb-br" class="' + (fbView==='bracket'?'active':'') + '">🏆 Bracket</button>' +
       '</div><div id="fbbody"></div>';
     document.getElementById('fb-feat').onclick = () => { fbView='featured'; fbSelected=null; render(); };
     document.getElementById('fb-all').onclick = () => { fbView='all'; render(); };
     document.getElementById('fb-st').onclick = () => { fbView='standings'; render(); };
+    document.getElementById('fb-br').onclick = () => { fbView='bracket'; render(); };
     const fb = document.getElementById('fbbody');
     if (fbView === 'featured') { fb.innerHTML = buildFootballDetail(m.detail); return; }
     if (fbView === 'standings') { renderFootballStandings(fb); return; }
+    if (fbView === 'bracket') { renderFootballBracket(fb); return; }
     if (fbSelected) {
       fb.innerHTML = '<span class="backbtn" id="fb-back">← All matches</span>' + fbMatchDetail(fbSelected);
       document.getElementById('fb-back').onclick = () => { fbSelected=null; render(); };
@@ -449,6 +485,29 @@ export class DetailPanel {
       others: [],
     };
     return buildFootballDetail(detail);
+  }
+
+  function renderFootballBracket(fb) {
+    if (fbBrStatus === 'idle') { fbBrStatus='loading'; vscode.postMessage({ type:'requestFootballBracket' }); }
+    if (fbBrStatus === 'loading' && !fbBracket) { fb.innerHTML = '<div class="empty">Loading bracket…</div>'; return; }
+    if (fbBrStatus === 'error') { fb.innerHTML = '<div class="empty">⚠ ' + esc(fbBrError) + '</div>'; return; }
+    if (!fbBracket || !fbBracket.rounds.length) { fb.innerHTML = '<div class="empty">Knockout bracket starts after the group stage 🏆</div>'; return; }
+    const bteam = (t) => {
+      const crest = t.crest ? '<img src="' + esc(t.crest) + '">' : '';
+      return '<div class="brow' + (t.winner ? ' win' : '') + '"><span class="bt">' + crest +
+        '<span class="bn">' + esc(t.name) + '</span></span><span class="bs">' + esc(t.score) + '</span></div>';
+    };
+    let html = '<div class="maptitle">' + esc(fbBracket.league) + ' · knockout</div>';
+    html += '<div class="bracketwrap"><div class="bracket">';
+    fbBracket.rounds.forEach((r) => {
+      html += '<div class="bround"><div class="brt">' + esc(r.name) + '</div><div class="bslots">';
+      r.matches.forEach((mt) => {
+        html += '<div class="bslot"><div class="btie">' + bteam(mt.home) + bteam(mt.away) + '</div></div>';
+      });
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+    fb.innerHTML = html;
   }
 
   function renderFootballStandings(fb) {
@@ -884,6 +943,12 @@ export class DetailPanel {
     } else if (msg.type === 'footballStandingsError') {
       fbStError = msg.message; fbStStatus = 'error';
       if (matches[active] && matches[active].sport === 'football' && fbView === 'standings') render();
+    } else if (msg.type === 'footballBracket') {
+      fbBracket = msg.data; fbBrStatus = 'ready';
+      if (matches[active] && matches[active].sport === 'football' && fbView === 'bracket') render();
+    } else if (msg.type === 'footballBracketError') {
+      fbBrError = msg.message; fbBrStatus = 'error';
+      if (matches[active] && matches[active].sport === 'football' && fbView === 'bracket') render();
     } else if (msg.type === 'f1Races') {
       f1Races = msg.data; racesStatus = 'ready';
       if (f1View === 'races') renderRaces();
