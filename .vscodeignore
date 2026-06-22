@@ -16,3 +16,4 @@ _*.js
 *.vsix
 icon.svg
 extension.vsixmanifest
+docs/**
