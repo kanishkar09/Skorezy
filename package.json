@@ -135,6 +135,7 @@
   "devDependencies": {
     "@types/node": "^20.x",
     "@types/vscode": "^1.85.0",
+    "gifenc": "^1.0.3",
     "sharp": "^0.34.5",
     "typescript": "^5.4.0"
   }

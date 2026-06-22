@@ -4,6 +4,8 @@ Follow **football** and **Formula 1** right from your VS Code status bar — wit
 
 > **Football and F1 work instantly — no API key, no signup.**
 
+![Skorezy demo](https://raw.githubusercontent.com/kanishkar09/Skorezy/main/docs/skorezy-demo.gif)
+
 ---
 
 ## ✨ Features
