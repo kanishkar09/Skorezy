@@ -501,13 +501,20 @@ export class DetailPanel {
     const lines = (team.formation || '').split('-').map((n) => parseInt(n)).filter((n) => n > 0);
     const rows = [[starters[0]]]; // GK
     let idx = 1;
-    if (lines.length) { lines.forEach((c) => { rows.push(starters.slice(idx, idx + c)); idx += c; }); }
-    if (idx < starters.length) { rows.push(starters.slice(idx)); } // leftovers
+    if (lines.length) {
+      lines.forEach((c) => { rows.push(starters.slice(idx, idx + c)); idx += c; });
+      // Any leftover players join the last line (spread out) — never stacked in a new row.
+      if (idx < starters.length) { rows[rows.length - 1] = rows[rows.length - 1].concat(starters.slice(idx)); }
+    } else {
+      // No formation info: GK + everyone else evenly in one outfield row.
+      rows.push(starters.slice(1));
+    }
     const n = rows.length;
     const out = [];
     rows.forEach((row, ri) => {
       const frac = n > 1 ? ri / (n - 1) : 0; // 0 = GK, 1 = most attacking
-      const y = isHome ? 95 - frac * 42 : 5 + frac * 42;
+      // Keep each team in its own half so the two attacking lines never collide at the halfway line.
+      const y = isHome ? 93 - frac * 36 : 7 + frac * 36;
       row.forEach((p, pi) => { out.push({ p, x: ((pi + 1) / (row.length + 1)) * 100, y }); });
     });
     return out;
