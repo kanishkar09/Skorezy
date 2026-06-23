@@ -317,10 +317,13 @@ export class FootballProvider implements ScoreProvider {
     const isLive = e.state === 'in';
     const isPre = e.state === 'pre';
     const day = new Date(e.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const untilMs = e.date - Date.now();
+    // Within a day, count down (2h 15m / 8m); otherwise show the date.
+    const when = untilMs > 0 && untilMs < 24 * 60 * 60 * 1000 ? this.countdown(e.date) : day;
     const statusBarText = isLive
       ? `${e.home.abbr} ${e.home.score}-${e.away.score} ${e.away.abbr} ${e.clock}`
       : isPre
-        ? `${e.home.abbr} v ${e.away.abbr} ${day}`
+        ? `${e.home.abbr} v ${e.away.abbr} · ${when}`
         : `${e.home.abbr} ${e.home.score}-${e.away.score} ${e.away.abbr} FT`;
 
     // Prefer goal scorers in the "others" section; fall back to other live games.

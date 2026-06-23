@@ -16,6 +16,8 @@ export class ScoreManager implements vscode.Disposable {
   private latest: Match[] = [];
   private timer: NodeJS.Timeout | undefined;
   private disposed = false;
+  private prevState = new Map<string, string>(); // match key -> last seen state
+  private firstRun = true;
 
   /** Called after every poll with the latest matches (used to refresh the tree). */
   onUpdate?: (matches: Match[]) => void;
@@ -58,15 +60,55 @@ export class ScoreManager implements vscode.Disposable {
     }
     DetailPanel.update(this.latest);
     this.onUpdate?.(this.latest);
+    this.detectKickoffs();
 
     this.schedule();
   }
 
+  /** Pop a notification when a match transitions from upcoming → live. */
+  private detectKickoffs(): void {
+    for (const m of this.latest) {
+      const key = `${m.sport}:${m.detail?.eventId || m.detail?.title || m.sport}`;
+      const prev = this.prevState.get(key);
+      this.prevState.set(key, m.state);
+      // Skip the very first poll so we don't announce already-live matches on startup.
+      if (this.firstRun) {
+        continue;
+      }
+      if (m.state === 'live' && prev && prev !== 'live') {
+        const title = m.detail?.title || m.statusBarText;
+        vscode.window
+          .showInformationMessage(`${m.emoji} ${title} is now LIVE!`, 'Open Skorezy')
+          .then((choice) => {
+            if (choice) {
+              void vscode.commands.executeCommand('skorezy.showPanel');
+            }
+          });
+      }
+    }
+    this.firstRun = false;
+  }
+
   private schedule(): void {
+    const now = Date.now();
     const anyLive = this.latest.some((m) => m.state === 'live');
-    const delayMs = anyLive
-      ? this.polling.liveSeconds * 1000
-      : this.polling.idleMinutes * 60 * 1000;
+    let delayMs: number;
+    if (anyLive) {
+      delayMs = this.polling.liveSeconds * 1000;
+    } else {
+      // How soon is the next match? Poll fast as kickoff approaches so we catch
+      // it going live promptly and keep the status-bar countdown fresh.
+      const soon = this.latest
+        .map((m) => m.detail?.countdownTo)
+        .filter((t): t is number => typeof t === 'number' && t > now)
+        .map((t) => t - now);
+      const minSoon = soon.length ? Math.min(...soon) : Infinity;
+      if (minSoon <= 15 * 60 * 1000) {
+        delayMs = 60 * 1000; // within 15 min → every minute
+      } else {
+        delayMs = this.polling.idleMinutes * 60 * 1000;
+      }
+    }
     this.timer = setTimeout(() => void this.tick(), delayMs);
   }
 
