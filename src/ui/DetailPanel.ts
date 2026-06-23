@@ -185,7 +185,11 @@ export class DetailPanel {
     border-radius:8px; padding:14px; margin-bottom:14px; }
   .badge { display:inline-flex; align-items:center; gap:6px; font-size:10px; padding:2px 8px; border-radius:10px;
     text-transform:uppercase; letter-spacing:.5px; }
-  .badge.live { background:#c0392b; color:#fff; }
+  .badge.live { background:#c0392b; color:#fff; animation:liveGlow 1.6s ease-in-out infinite; }
+  @keyframes liveGlow {
+    0%, 100% { box-shadow:0 0 0 0 rgba(224,56,59,0); }
+    50% { box-shadow:0 0 12px 2px rgba(224,56,59,0.85); }
+  }
   .badge.upcoming { background:#2980b9; color:#fff; }
   .badge.idle { background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); }
   .badge.error { background:#b9770e; color:#fff; }
@@ -232,6 +236,7 @@ export class DetailPanel {
   .maptitle { font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:8px; }
   .replaybadge { display:inline-block; font-size:9px; padding:1px 6px; border-radius:8px;
     background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); margin-left:6px; }
+  .replaybadge.livebadge { background:#c0392b; color:#fff; animation:liveGlow 1.6s ease-in-out infinite; }
   /* Cricket scorecard */
   .toss { font-size:11px; color:var(--vscode-descriptionForeground); margin:4px 0 2px; }
   .venue { font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:8px; }
@@ -280,7 +285,8 @@ export class DetailPanel {
   .fbmid .vs { font-size:18px; font-weight:700; color:var(--vscode-descriptionForeground); }
   .fbmid .clk { font-size:10px; color:var(--vscode-textLink-foreground); font-weight:600; }
   .fbmid .livetimer { font-size:11px; color:#fff; background:#c0392b; padding:1px 8px; border-radius:9px;
-    display:inline-flex; align-items:center; gap:5px; margin-bottom:4px; font-weight:600; }
+    display:inline-flex; align-items:center; gap:5px; margin-bottom:4px; font-weight:600;
+    animation:liveGlow 1.6s ease-in-out infinite; }
   .fbmid .livetimer .ld { width:5px; height:5px; border-radius:50%; background:#fff; animation:pulse 1.2s infinite; }
   /* Match page: pitch lineup + timeline */
   .mdgrid { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
@@ -902,7 +908,7 @@ export class DetailPanel {
     if (!mapData || !mapData.frames.length) { c.innerHTML = '<div class="empty">No position data</div>'; return; }
     c.innerHTML =
       '<div class="maptitle">' + esc(mapData.sessionName) + ' · ' + esc(mapData.circuit) +
-        (mapData.live ? '<span class="replaybadge" style="background:#c0392b;color:#fff">LIVE</span>'
+        (mapData.live ? '<span class="replaybadge livebadge">LIVE</span>'
                       : '<span class="replaybadge">REPLAY</span>') + '</div>' +
       '<div class="mapwrap"><canvas id="track" width="280" height="240"></canvas>' +
       '<div class="grid" id="grid"></div></div>';
